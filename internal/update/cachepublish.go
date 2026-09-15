@@ -19,11 +19,13 @@ import (
 // PublishOpenPaneCaches refreshes the $cache token for every open agent pane.
 // It deliberately does not re-collect provider limits or alter $context.
 func PublishOpenPaneCaches(now time.Time) {
+	collectOptions := limits.DefaultCollectOptions()
 	if !limits.ResolvedCacheDisplay() {
 		clearOpenPaneCacheTokensWith(
 			herdrMetadataTokenWriter,
 			ListOpenPaneSnapshots,
 			herdrcli.GetPaneInfo,
+			collectOptions,
 		)
 		return
 	}
@@ -40,6 +42,7 @@ func PublishOpenPaneCaches(now time.Time) {
 		herdrMetadataTokenWriter,
 		ListOpenPaneSnapshots,
 		herdrcli.GetPaneInfo,
+		collectOptions,
 		resolveProvider,
 		func(paneID string, pane herdrcli.PaneInfo, providerID string) *core.ContextUsage {
 			if pane.Agent == nil {
@@ -67,12 +70,13 @@ func clearOpenPaneCacheTokensWith(
 	writer metadataTokenWriter,
 	listSnapshots func() ([]limits.OpenPaneSnapshot, bool),
 	getPane func(string) herdrcli.PaneInfo,
+	options limits.CollectOptions,
 ) {
 	snapshots, ok := listSnapshots()
 	if !ok {
 		return
 	}
-	for _, snapshot := range snapshots {
+	for _, snapshot := range options.FilterAllowedPanes(snapshots) {
 		pane := getPane(snapshot.PaneID)
 		writeCacheHitTokensWith(writer, pane.Tokens, snapshot.PaneID, "", 0, false, false)
 	}
@@ -82,6 +86,7 @@ func publishOpenPaneCachesWith(
 	writer metadataTokenWriter,
 	listSnapshots func() ([]limits.OpenPaneSnapshot, bool),
 	getPane func(string) herdrcli.PaneInfo,
+	options limits.CollectOptions,
 	resolveProvider func(limits.OpenPaneSnapshot) (string, bool),
 	resolveUsage func(string, herdrcli.PaneInfo, string) *core.ContextUsage,
 	now time.Time,
@@ -90,7 +95,7 @@ func publishOpenPaneCachesWith(
 	if !ok {
 		return
 	}
-	for _, snapshot := range snapshots {
+	for _, snapshot := range options.FilterAllowedPanes(snapshots) {
 		pane := getPane(snapshot.PaneID)
 		providerID, resolved := resolveProvider(snapshot)
 		var usage *core.ContextUsage

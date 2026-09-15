@@ -164,14 +164,14 @@ func PublishCollectedLimitsWith(
 	if !ok {
 		return
 	}
+	collectOptions := limits.DefaultCollectOptions()
 	claudeProfiles := limits.ResolvedClaudeProfiles()
 	codexProfiles := limits.ResolvedCodexProfiles()
 	grokProfiles := limits.ResolvedGrokProfiles()
 	openCodeProfiles := limits.ResolvedOpenCodeProfiles()
 	resolve := limits.BuildHarnessPaneProviderResolver(claudeProfiles, codexProfiles, grokProfiles, openCodeProfiles)
 	billing := limits.DefaultBillingDeps()
-	panes := make([]LimitPublishPane, 0, len(snaps))
-	for _, snap := range snaps {
+	panes := resolveAllowedLimitPublishPanes(collectOptions, snaps, func(snap limits.OpenPaneSnapshot) LimitPublishPane {
 		providerID, resolved := resolve(snap)
 		info := getPane(snap.PaneID)
 		pane := LimitPublishPane{
@@ -186,8 +186,21 @@ func PublishCollectedLimitsWith(
 				snap.Agent, providerID, claudeProfiles, codexProfiles, grokProfiles, openCodeProfiles,
 			)
 		}
-		panes = append(panes, pane)
-	}
+		return pane
+	})
 	applyLimitPublishTargets(writer, panes, LimitPublishTargets(providers, panes, nowMs, limits.ResolvedLimitPercent()))
 
+}
+
+func resolveAllowedLimitPublishPanes(
+	options limits.CollectOptions,
+	snapshots []limits.OpenPaneSnapshot,
+	resolve func(limits.OpenPaneSnapshot) LimitPublishPane,
+) []LimitPublishPane {
+	allowed := options.FilterAllowedPanes(snapshots)
+	panes := make([]LimitPublishPane, 0, len(allowed))
+	for _, snapshot := range allowed {
+		panes = append(panes, resolve(snapshot))
+	}
+	return panes
 }

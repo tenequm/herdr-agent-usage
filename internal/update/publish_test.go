@@ -36,6 +36,29 @@ func TestLimitPublishTargets_SubscriptionPaneGetsMatchingProvider(t *testing.T) 
 	}
 }
 
+func TestResolveAllowedLimitPublishPanesSkipsUnlistedResolvers(t *testing.T) {
+	options := limits.CollectOptions{
+		Claude:  []limits.ClaudeProfileCollector{{ID: "claude"}},
+		Allowed: map[string]bool{"claude": true},
+	}
+	resolved := map[string]int{}
+	panes := resolveAllowedLimitPublishPanes(options, []limits.OpenPaneSnapshot{
+		{PaneID: "claude", Agent: "claude"},
+		{PaneID: "grok", Agent: "grok"},
+		{PaneID: "opencode", Agent: "opencode"},
+	}, func(snapshot limits.OpenPaneSnapshot) LimitPublishPane {
+		resolved[snapshot.PaneID]++
+		return LimitPublishPane{PaneID: snapshot.PaneID}
+	})
+
+	if len(panes) != 1 || panes[0].PaneID != "claude" {
+		t.Fatalf("resolved panes = %+v", panes)
+	}
+	if resolved["grok"] != 0 || resolved["opencode"] != 0 {
+		t.Fatalf("unlisted resolvers invoked: %v", resolved)
+	}
+}
+
 func TestLimitPublishTargets_TwoPanesSameAccount(t *testing.T) {
 	providers := []limits.ProviderLimits{{
 		ProviderID: "claude",

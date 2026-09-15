@@ -235,6 +235,12 @@ type BillingDeps struct {
 
 // PaneBillingMode combines account- and session-level evidence for one pane.
 func PaneBillingMode(providerID string, pane OpenPaneSnapshot, deps BillingDeps) BillingMode {
+	if deps.CandidateFamilyIDs != nil && !deps.CandidateFamilyIDs[strings.ToLower(pane.Agent)] {
+		return BillingUnknown
+	}
+	if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[providerID] {
+		return BillingUnknown
+	}
 	account := BillingUnknown
 	if deps.AccountMode != nil {
 		account = deps.AccountMode(providerID)

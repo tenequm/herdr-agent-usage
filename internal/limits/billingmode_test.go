@@ -282,6 +282,38 @@ func TestPaneBillingMode_CombinesAccountAndSession(t *testing.T) {
 	}
 }
 
+func TestPaneBillingMode_RespectsCandidateSetsBeforeResolvers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		deps BillingDeps
+	}{
+		{
+			name: "family excluded",
+			deps: BillingDeps{CandidateFamilyIDs: map[string]bool{"claude": true}},
+		},
+		{
+			name: "provider excluded",
+			deps: BillingDeps{
+				CandidateFamilyIDs:   map[string]bool{"grok": true},
+				CandidateProviderIDs: map[string]bool{"claude": true},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			deps := tc.deps
+			deps.AccountMode = func(string) BillingMode { calls++; return BillingSubscription }
+			deps.PaneMode = func(string, OpenPaneSnapshot) BillingMode { calls++; return BillingSubscription }
+			if got := PaneBillingMode("grok", OpenPaneSnapshot{Agent: "grok"}, deps); got != BillingUnknown {
+				t.Fatalf("mode = %v, want Unknown", got)
+			}
+			if calls != 0 {
+				t.Fatalf("excluded resolvers called %d times", calls)
+			}
+		})
+	}
+}
+
 func TestIntersectFilters(t *testing.T) {
 	a := map[string]bool{"claude": true, "opencode": true}
 	b := map[string]bool{"opencode": true, "grok": true}

@@ -42,6 +42,7 @@ func TestPublishOpenPaneCachesWith_WritesCacheOnly(t *testing.T) {
 			return []limits.OpenPaneSnapshot{{PaneID: "p1", Agent: agent}}, true
 		},
 		func(string) herdrcli.PaneInfo { return pane },
+		limits.CollectOptions{},
 		func(limits.OpenPaneSnapshot) (string, bool) { return "claude", true },
 		func(string, herdrcli.PaneInfo, string) *core.ContextUsage {
 			return &core.ContextUsage{Cache: &core.CacheUsage{HitPercent: 80, ExpiresAtUnix: &expires}}
@@ -86,6 +87,7 @@ func TestPublishOpenPaneCachesWith_ClearsUnresolvedSettledCache(t *testing.T) {
 			return []limits.OpenPaneSnapshot{{PaneID: "p1", Agent: agent}}, true
 		},
 		func(string) herdrcli.PaneInfo { return pane },
+		limits.CollectOptions{},
 		func(limits.OpenPaneSnapshot) (string, bool) { return "", false },
 		func(string, herdrcli.PaneInfo, string) *core.ContextUsage {
 			t.Fatal("unresolved pane must not resolve usage")
@@ -118,6 +120,7 @@ func TestPublishOpenPaneCachesWith_RetainsWorkingCacheWithoutUsage(t *testing.T)
 			return []limits.OpenPaneSnapshot{{PaneID: "p1", Agent: agent}}, true
 		},
 		func(string) herdrcli.PaneInfo { return pane },
+		limits.CollectOptions{},
 		func(limits.OpenPaneSnapshot) (string, bool) { return "claude", true },
 		func(string, herdrcli.PaneInfo, string) *core.ContextUsage { return nil },
 		time.Unix(0, 0),
@@ -149,6 +152,7 @@ func TestPublishOpenPaneCachesWith_UsesSessionHitRate(t *testing.T) {
 			return []limits.OpenPaneSnapshot{{PaneID: "p1", Agent: agent}}, true
 		},
 		func(string) herdrcli.PaneInfo { return pane },
+		limits.CollectOptions{},
 		func(limits.OpenPaneSnapshot) (string, bool) { return "omp", true },
 		func(string, herdrcli.PaneInfo, string) *core.ContextUsage {
 			return &core.ContextUsage{
@@ -192,11 +196,48 @@ func TestClearOpenPaneCacheTokensWith_ClearsWorkingPaneCache(t *testing.T) {
 			return []limits.OpenPaneSnapshot{{PaneID: "p1", Agent: agent}}, true
 		},
 		func(string) herdrcli.PaneInfo { return pane },
+		limits.CollectOptions{},
 	)
 
 	for _, name := range []string{"cache_high", "cache_low"} {
 		if !cleared[name] {
 			t.Fatalf("did not clear %s: %v", name, cleared)
 		}
+	}
+}
+
+func TestPublishOpenPaneCachesWithSkipsUnlistedResolvers(t *testing.T) {
+	options := limits.CollectOptions{
+		Claude:  []limits.ClaudeProfileCollector{{ID: "claude"}},
+		Allowed: map[string]bool{"claude": true},
+	}
+	getCalls := map[string]int{}
+	resolveCalls := map[string]int{}
+	publishOpenPaneCachesWith(
+		metadataTokenWriter{},
+		func() ([]limits.OpenPaneSnapshot, bool) {
+			return []limits.OpenPaneSnapshot{
+				{PaneID: "grok", Agent: "grok"},
+				{PaneID: "opencode", Agent: "opencode"},
+			}, true
+		},
+		func(paneID string) herdrcli.PaneInfo {
+			getCalls[paneID]++
+			return herdrcli.PaneInfo{}
+		},
+		options,
+		func(snapshot limits.OpenPaneSnapshot) (string, bool) {
+			resolveCalls[snapshot.PaneID]++
+			return snapshot.Agent, true
+		},
+		func(paneID string, _ herdrcli.PaneInfo, _ string) *core.ContextUsage {
+			t.Fatalf("usage resolver invoked for %s", paneID)
+			return nil
+		},
+		time.Unix(0, 0),
+	)
+
+	if len(getCalls) != 0 || len(resolveCalls) != 0 {
+		t.Fatalf("unlisted pane callbacks invoked: get=%v resolve=%v", getCalls, resolveCalls)
 	}
 }
