@@ -36,6 +36,40 @@ func TestUpdateNotificationHonorsPluginConfig(t *testing.T) {
 	}
 }
 
+func TestPublishPanelSidebarDisabledWritesNothing(t *testing.T) {
+	calls := 0
+	call := func() { calls++ }
+	publishPanelSidebarWith(false, call, call, call)
+	if calls != 0 {
+		t.Fatalf("disabled pane publishing made %d calls", calls)
+	}
+}
+
+func TestSidebarCommandGates(t *testing.T) {
+	for _, command := range []string{"status", "update", "startup", "watch"} {
+		t.Run(command, func(t *testing.T) {
+			calls := 0
+			runSidebarActions(false, func() { calls++ }, func() { calls++ })
+			if calls != 0 {
+				t.Fatalf("disabled %s made %d calls", command, calls)
+			}
+		})
+	}
+}
+
+func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
+	if !setup.DefaultPluginConfig.Sidebar {
+		t.Fatal("sidebar default must remain enabled")
+	}
+	calls := 0
+	call := func() { calls++ }
+	runSidebarActions(setup.DefaultPluginConfig.Sidebar, call, call)
+	publishPanelSidebarWith(setup.DefaultPluginConfig.Sidebar, call, call, call)
+	if calls != 5 {
+		t.Fatalf("default sidebar made %d calls, want 5", calls)
+	}
+}
+
 // TestStatusLineNotificationsDeduplicatesEveryTick reproduces issue #32's
 // once-per-second statusLine calls after entering the 50% remaining bucket.
 func TestStatusLineNotificationsDeduplicatesEveryTick(t *testing.T) {

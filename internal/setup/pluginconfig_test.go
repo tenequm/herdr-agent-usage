@@ -42,6 +42,18 @@ func TestParsePluginConfigTOML_CacheDisplay(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_Sidebar(t *testing.T) {
+	if !DefaultPluginConfig.Sidebar || !ParsePluginConfigTOML("").Sidebar {
+		t.Fatal("sidebar must default to enabled")
+	}
+	if ParsePluginConfigTOML("[ui]\nsidebar = false").Sidebar {
+		t.Fatal("sidebar=false was ignored")
+	}
+	if !contains(DefaultPluginConfigTOML(DefaultPluginConfig), "# sidebar = false") {
+		t.Fatal("seed config does not document pane-only sidebar switch")
+	}
+}
+
 func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
 	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
 	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {

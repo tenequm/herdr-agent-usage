@@ -38,6 +38,8 @@ type PluginConfig struct {
 	// CacheDisplay controls both sidebar cache tokens and the Agent Usage pane's
 	// red-band cache warning.
 	CacheDisplay bool
+	// Sidebar controls all metadata publishing and the idle watcher.
+	Sidebar bool
 	// EnabledProviderFamilies bounds all quota collection when non-empty.
 	// Values are canonical provider family ids from providers.Registrations.
 	EnabledProviderFamilies []string
@@ -59,6 +61,7 @@ var DefaultPluginConfig = PluginConfig{
 	NotifyEnabled:       true,
 	LimitPercent:        core.LimitPercentRemaining,
 	CacheDisplay:        true,
+	Sidebar:             true,
 }
 
 // pluginConfigWire mirrors the on-disk TOML shape for decoding.
@@ -70,6 +73,7 @@ type pluginConfigWire struct {
 	UI struct {
 		LimitPercent *string `toml:"limit_percent"`
 		CacheDisplay *bool   `toml:"cache_display"`
+		Sidebar      *bool   `toml:"sidebar"`
 	} `toml:"ui"`
 	Providers struct {
 		Enabled []string `toml:"enabled"`
@@ -160,6 +164,8 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		`limit_percent = "` + string(core.ParseLimitPercent(string(config.LimitPercent))) + `"`,
 		"# Set false to hide cache data from both sidebar and Agent Usage.",
 		"cache_display = " + strconv.FormatBool(config.CacheDisplay),
+		"# Set false for a pane-only installation with no agent-pane metadata.",
+		"# sidebar = false",
 		"",
 		"[providers]",
 		"# Limit every collector and the Agent Usage pane to these provider families.",
@@ -241,6 +247,7 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		RemainingThresholds: append([]int(nil), DefaultPluginConfig.RemainingThresholds...),
 		LimitPercent:        DefaultPluginConfig.LimitPercent,
 		CacheDisplay:        DefaultPluginConfig.CacheDisplay,
+		Sidebar:             DefaultPluginConfig.Sidebar,
 	}
 
 	var wire pluginConfigWire
@@ -258,6 +265,9 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 	if wire.UI.CacheDisplay != nil {
 		cfg.CacheDisplay = *wire.UI.CacheDisplay
+	}
+	if wire.UI.Sidebar != nil {
+		cfg.Sidebar = *wire.UI.Sidebar
 	}
 
 	quotaFamilies := make(map[string]bool)

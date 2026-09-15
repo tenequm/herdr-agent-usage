@@ -36,6 +36,7 @@ func main() {
 	}
 	cmd := os.Args[1]
 	args := os.Args[2:]
+	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
 
 	switch cmd {
 	case "version", "--version", "-V":
@@ -45,8 +46,7 @@ func main() {
 	case "status", "update":
 		// force when invoked as a plugin action (refresh)
 		force := os.Getenv("HERDR_PLUGIN_ACTION_ID") != "" || hasFlag(args, "--force")
-		update.RunUpdate(force)
-		startIdleWatch()
+		runSidebarActions(config.Sidebar, func() { update.RunUpdate(force) }, startIdleWatch)
 	case "setup":
 		writeToast := hasFlag(args, "--write-toast") || hasFlag(args, "--apply-toast")
 		report := setup.RunSetup(setup.SetupOptions{WriteToast: writeToast})
@@ -60,10 +60,9 @@ func main() {
 		runNotify()
 	case "startup":
 		// Herdr [[startup]] / live handoff: restore every open pane's tokens.
-		update.RepublishOpenAgentPanes()
-		startIdleWatch()
+		runSidebarActions(config.Sidebar, update.RepublishOpenAgentPanes, startIdleWatch)
 	case "watch":
-		update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil)
+		runSidebarActions(config.Sidebar, func() { update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil) })
 	case "check-update":
 		runUpdateCheck(args)
 	case "statusline":
@@ -373,14 +372,7 @@ func runLimitsPane(args []string) error {
 		cachedSnap = collectPanel(nowMs, activeOnly)
 		cachedLoaded = true
 		cachedNowMs = nowMs
-		update.PublishCollectedLimits(cachedSnap.providers, nowMs)
-		update.PublishOpenPaneCaches(time.UnixMilli(nowMs))
-		// Touched last: the heartbeat is evidence this tick's publish calls
-		// above actually ran, not merely that a render loop is alive. See
-		// heartbeat.go — a heartbeat that predates the publish calls could
-		// keep looking fresh from a stale, unrestarted process that no
-		// longer runs this logic at all.
-		update.TouchPaneHeartbeat(time.Now())
+		publishPanelSidebar(cachedSnap, nowMs)
 		paintFrame(formatPanel(cachedSnap, nowMs))
 	}
 	renderFull()
@@ -468,6 +460,31 @@ func runLimitsPane(args []string) error {
 			}
 		}
 	}
+}
+
+func publishPanelSidebar(snap panelSnapshot, nowMs int64) {
+	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
+	publishPanelSidebarWith(
+		config.Sidebar,
+		func() { update.PublishCollectedLimits(snap.providers, nowMs) },
+		func() { update.PublishOpenPaneCaches(time.UnixMilli(nowMs)) },
+		func() { update.TouchPaneHeartbeat(time.Now()) },
+	)
+}
+
+func runSidebarActions(enabled bool, actions ...func()) {
+	if !enabled {
+		return
+	}
+	for _, action := range actions {
+		action()
+	}
+}
+
+func publishPanelSidebarWith(enabled bool, publishLimits, publishCaches, touchHeartbeat func()) {
+	// The heartbeat is last because it is evidence that both publishing steps
+	// completed on this tick, not merely that the render loop is alive.
+	runSidebarActions(enabled, publishLimits, publishCaches, touchHeartbeat)
 }
 
 func runNotify() {
