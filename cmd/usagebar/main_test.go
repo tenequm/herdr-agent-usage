@@ -10,6 +10,7 @@ import (
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/ratelimit"
 	"github.com/senna-lang/herdr-agent-usage/internal/setup"
+	"github.com/senna-lang/herdr-agent-usage/internal/updatecheck"
 )
 
 // TestNotificationsEnabledHonorsPluginConfig ensures both notification entrypoints
