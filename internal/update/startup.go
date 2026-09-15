@@ -13,6 +13,39 @@ package update
 
 import "github.com/senna-lang/herdr-agent-usage/internal/herdrcli"
 
+var ownedMetadataTokenNames = []string{"title", "provider", "limit", "context", "cache", "cache_high", "cache_mid", "cache_low"}
+
+// ClearPaneMetadata removes every token this plugin owns from one pane.
+func ClearPaneMetadata(paneID string) {
+	clearPaneMetadataWith(herdrMetadataTokenWriter, paneID)
+}
+
+func clearPaneMetadataWith(writer metadataTokenWriter, paneID string) {
+	if paneID == "" {
+		return
+	}
+	for _, name := range ownedMetadataTokenNames {
+		writer.clear(paneID, herdrcli.Source, name)
+	}
+}
+
+// ClearOpenAgentPaneMetadata removes stale plugin tokens from every open pane.
+func ClearOpenAgentPaneMetadata() {
+	clearOpenAgentPaneMetadataWith(herdrcli.ListOpenAgentPanesOK, ClearPaneMetadata)
+}
+
+func clearOpenAgentPaneMetadataWith(list func() ([]herdrcli.OpenAgentPane, bool), clear func(string)) {
+	panes, ok := list()
+	if !ok {
+		return
+	}
+	for _, pane := range panes {
+		if pane.PaneID != "" {
+			clear(pane.PaneID)
+		}
+	}
+}
+
 // RepublishOpenAgentPanes restores sidebar tokens for every open agent pane.
 func RepublishOpenAgentPanes() {
 	republishOpenAgentPanesWith(herdrcli.ListOpenAgentPanesOK, RunUpdateForPane)

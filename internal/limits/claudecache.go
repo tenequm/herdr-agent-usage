@@ -40,12 +40,13 @@ type ClaudeLimitsCacheFile struct {
 type CollectClaudeLimitsOptions struct {
 	StatusLineCachePath string
 	ClaudeJSONPath      string
+	SkipBorrowedWindows bool
 }
 
 // ResolveClaudeLimitsCachePath returns the single-default statusLine cache path.
 // Multi-account isolation comes from explicit [[claude.profiles]] config, whose
-// paths are computed per config_dir; the synthesized default must stay
-// byte-identical to the historical location so it resolves the same on the write
+// paths are computed per config_dir; the synthesized default stays
+// at the historical legacy location so it resolves the same on the write
 // side (statusLine) and the read side (panel/sidebar), which cannot see
 // CLAUDE_CONFIG_DIR.
 func ResolveClaudeLimitsCachePath() string {
@@ -186,9 +187,11 @@ func CollectClaudeLimits(nowMs int64, options CollectClaudeLimitsOptions) Provid
 	// The windows belong to the account, so any agent's reading of them
 	// counts — including when Claude Code wrote nothing at all.
 	account, _ := AccountEmailFromJSONPath(jsonPath)
-	if borrowed := borrowWindows("claude", "Claude", account, nowMs); borrowed != nil {
-		if native == nil || borrowed.FetchedAtMs > native.FetchedAtMs {
-			return *borrowed
+	if !options.SkipBorrowedWindows {
+		if borrowed := borrowWindows("claude", "Claude", account, nowMs); borrowed != nil {
+			if native == nil || borrowed.FetchedAtMs > native.FetchedAtMs {
+				return *borrowed
+			}
 		}
 	}
 	if native != nil {

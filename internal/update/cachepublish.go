@@ -19,7 +19,11 @@ import (
 // PublishOpenPaneCaches refreshes the $cache token for every open agent pane.
 // It deliberately does not re-collect provider limits or alter $context.
 func PublishOpenPaneCaches(now time.Time) {
-	collectOptions := limits.DefaultCollectOptions()
+	bound := limits.ResolvedCollectionBound()
+	collectOptions := limits.CollectOptions{}
+	if bound.Configured {
+		collectOptions.AllowedFamilies = bound.Families
+	}
 	if !limits.ResolvedCacheDisplay() {
 		clearOpenPaneCacheTokensWith(
 			herdrMetadataTokenWriter,

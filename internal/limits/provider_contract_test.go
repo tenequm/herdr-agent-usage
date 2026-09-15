@@ -108,9 +108,6 @@ func TestCollectorFamilies_MatchCapabilityRegistrations(t *testing.T) {
 	for _, family := range defaultProfileFamilySpecs(CollectOptions{}) {
 		got = append(got, family.familyID)
 	}
-	for _, spec := range singleCollectorQuotaSpecs {
-		got = append(got, spec.id)
-	}
 	assertSameIDSet(t, "collector families", got, providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota))
 }
 

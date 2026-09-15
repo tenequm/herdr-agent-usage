@@ -5,10 +5,10 @@
 package limits
 
 import (
-	"os"
 	"strings"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
@@ -16,15 +16,7 @@ import (
 	"github.com/senna-lang/herdr-agent-usage/internal/setup"
 )
 
-func processEnvMap() map[string]string {
-	env := map[string]string{}
-	for _, kv := range os.Environ() {
-		if i := strings.IndexByte(kv, '='); i >= 0 {
-			env[kv[:i]] = kv[i+1:]
-		}
-	}
-	return env
-}
+func processEnvMap() map[string]string { return setup.ProcessEnv() }
 
 // ResolvedClaudeProfiles resolves the configured Claude profiles (synthesizing
 // the single implicit default when none are configured) from process env.
@@ -46,12 +38,48 @@ func ResolvedCacheDisplay() bool {
 	return cfg.CacheDisplay
 }
 
+type CollectionBound struct {
+	Configured bool
+	Families   map[string]bool
+}
+
+// ResolvedCollectionBound reads only the configured family boundary. It is
+// intentionally cheaper than building every collector and resolved profile.
+func ResolvedCollectionBound() CollectionBound {
+	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(processEnvMap()))
+	bound := CollectionBound{Configured: cfg.ProviderAllowlistConfigured}
+	if bound.Configured {
+		bound.Families = make(map[string]bool, len(cfg.EnabledProviderFamilies))
+		for _, id := range cfg.EnabledProviderFamilies {
+			bound.Families[id] = true
+		}
+	}
+	return bound
+}
+
+func (b CollectionBound) AllowsFamily(id string) bool {
+	return !b.Configured || b.Families[strings.ToLower(id)]
+}
+
+func (b CollectionBound) routedActivitySources() routedActivitySources {
+	if !b.Configured {
+		return routedActivitySources{ompPi: true, openCode: true}
+	}
+	return routedActivitySources{openCode: b.AllowsFamily("opencode")}
+}
+
 // ResolvedProviderAllowlist returns the validated global collection allowlist
 // and whether a non-empty list was configured. configured with an empty slice
 // means every entry was invalid and collection must fail closed.
 func ResolvedProviderAllowlist() (families []string, configured bool) {
-	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(processEnvMap()))
-	return append([]string(nil), cfg.EnabledProviderFamilies...), cfg.ProviderAllowlistConfigured
+	bound := ResolvedCollectionBound()
+	families = make([]string, 0, len(bound.Families))
+	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
+		if bound.Families[id] {
+			families = append(families, id)
+		}
+	}
+	return families, bound.Configured
 }
 
 // profileByIDIn looks up one profile by provider id within an already-resolved

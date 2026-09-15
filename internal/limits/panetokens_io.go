@@ -20,6 +20,7 @@ import (
 
 // DefaultPaneActivityDeps resolves one profile snapshot per attach pass.
 func DefaultPaneActivityDeps() PaneActivityDeps {
+	bound := ResolvedCollectionBound()
 	profiles := ResolvedClaudeProfiles()
 	codexProfiles := ResolvedCodexProfiles()
 	grokProfiles := ResolvedGrokProfiles()
@@ -29,7 +30,7 @@ func DefaultPaneActivityDeps() PaneActivityDeps {
 			return tokensForPaneWith(profiles, codexProfiles, grokProfiles, openCodeProfiles, providerID, pane, startMs, endMs)
 		},
 		TotalTokensForProvider: func(providerID string, startMs, endMs int64) float64 {
-			return totalTokensForProviderWith(profiles, codexProfiles, grokProfiles, openCodeProfiles, providerID, startMs, endMs)
+			return totalTokensForProviderWith(profiles, codexProfiles, grokProfiles, openCodeProfiles, bound.routedActivitySources(), providerID, startMs, endMs)
 		},
 		ResolvePaneProvider: BuildPaneActivityProviderResolver(profiles, codexProfiles, grokProfiles, openCodeProfiles),
 	}
@@ -356,6 +357,7 @@ func TotalTokensForProviderDefault(providerID string, startMs, endMs int64) floa
 		ResolvedCodexProfiles(),
 		ResolvedGrokProfiles(),
 		ResolvedOpenCodeProfiles(),
+		routedActivitySources{ompPi: true, openCode: true},
 		providerID,
 		startMs,
 		endMs,
@@ -364,8 +366,13 @@ func TotalTokensForProviderDefault(providerID string, startMs, endMs int64) floa
 
 // totalTokensForProviderWith is TotalTokensForProviderDefault dispatched against
 // an explicit profile snapshot (see DefaultPaneActivityDeps).
-func totalTokensForProviderWith(profiles []claude.ClaudeProfile, codexProfiles []codex.CodexProfile, grokProfiles []grok.GrokProfile, openCodeProfiles []opencode.OpenCodeProfile, providerID string, startMs, endMs int64) float64 {
-	routed := routedSubscriptionTotal(providerID, startMs, endMs)
+type routedActivitySources struct {
+	ompPi    bool
+	openCode bool
+}
+
+func totalTokensForProviderWith(profiles []claude.ClaudeProfile, codexProfiles []codex.CodexProfile, grokProfiles []grok.GrokProfile, openCodeProfiles []opencode.OpenCodeProfile, sources routedActivitySources, providerID string, startMs, endMs int64) float64 {
+	routed := routedSubscriptionTotal(sources, providerID, startMs, endMs)
 	if profile, ok := profileByIDIn(profiles, providerID); ok {
 		return claudeTotalIn(profile.ProjectsRoot, startMs, endMs) + routed
 	}
@@ -398,37 +405,39 @@ func totalTokensForProviderWith(profiles []claude.ClaudeProfile, codexProfiles [
 // routedSubscriptionTotal adds activity recorded by harnesses other than the
 // collector's native one. This keeps the provider block authoritative when
 // OMP/Pi/OpenCode all spend the same subscription account.
-func routedSubscriptionTotal(providerID string, startMs, endMs int64) float64 {
+func routedSubscriptionTotal(sources routedActivitySources, providerID string, startMs, endMs int64) float64 {
 	var total float64
-	for _, source := range []struct {
-		harness string
-		paths   []string
-	}{
-		{"omp", omp.ListAllOMPSessionFiles()},
-		{"pi", omp.ListAllPiSessionFiles()},
-	} {
-		byBackend := scanOMPPiRowsByBackend(source.paths, startMs)
-		for backendID, rows := range byBackend {
-			credentialType := ""
-			if source.harness == "omp" {
-				credentialType = omp.CredentialType(backendID)
-			} else {
-				credentialType = omp.PiCredentialType(backendID)
-			}
-			route, ok := SubscriptionRouteForProviderAuth(backendID, credentialType)
-			if !ok || route.CollectorProviderID != providerID {
-				continue
-			}
-			for _, row := range rows {
-				if row.CreatedMs >= startMs && row.CreatedMs <= endMs {
-					total += row.Tokens
+	if sources.ompPi {
+		for _, source := range []struct {
+			harness string
+			paths   []string
+		}{
+			{"omp", omp.ListAllOMPSessionFiles()},
+			{"pi", omp.ListAllPiSessionFiles()},
+		} {
+			byBackend := scanOMPPiRowsByBackend(source.paths, startMs)
+			for backendID, rows := range byBackend {
+				credentialType := ""
+				if source.harness == "omp" {
+					credentialType = omp.CredentialType(backendID)
+				} else {
+					credentialType = omp.PiCredentialType(backendID)
+				}
+				route, ok := SubscriptionRouteForProviderAuth(backendID, credentialType)
+				if !ok || route.CollectorProviderID != providerID {
+					continue
+				}
+				for _, row := range rows {
+					if row.CreatedMs >= startMs && row.CreatedMs <= endMs {
+						total += row.Tokens
+					}
 				}
 			}
 		}
 	}
 	// OpenCode Go is already included by openCodeTotal; only add OpenCode
 	// sessions routed to a different subscription collector (e.g. Codex).
-	if providerID != "opencode" {
+	if sources.openCode && providerID != "opencode" {
 		total += openCodeRoutedSubscriptionTotal(providerID, startMs, endMs)
 	}
 	return total

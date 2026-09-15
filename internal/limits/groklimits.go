@@ -158,7 +158,8 @@ type CollectGrokLimitsOptions struct {
 	FetchWebBilling func(key string) *LimitWindow // returns primary window from web
 	FetchPlanTier   func(key string) *string
 	// TryBillingRPC overrides the default grok agent stdio x.ai/billing probe.
-	TryBillingRPC func(nowMs int64, email *string) *ProviderLimits
+	TryBillingRPC       func(nowMs int64, email *string) *ProviderLimits
+	SkipBorrowedWindows bool
 }
 
 // TryGrokBillingRPC runs `grok agent stdio` x.ai/billing (often unavailable).
@@ -230,16 +231,20 @@ func CollectGrokLimits(nowMs int64, opts CollectGrokLimitsOptions) ProviderLimit
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		if b := borrowGrokWindows(nil, nil, nowMs); b != nil {
-			return *b
+		if !opts.SkipBorrowedWindows {
+			if b := borrowGrokWindows(nil, nil, nowMs); b != nil {
+				return *b
+			}
 		}
 		note := "no ~/.grok/auth.json — run `grok login`"
 		return ProviderLimits{ProviderID: "grok", Label: "Grok", Source: "none", FetchedAtMs: nowMs, Note: &note}
 	}
 	auth := ParseGrokAuthJSON(string(raw))
 	if auth == nil {
-		if b := borrowGrokWindows(nil, nil, nowMs); b != nil {
-			return *b
+		if !opts.SkipBorrowedWindows {
+			if b := borrowGrokWindows(nil, nil, nowMs); b != nil {
+				return *b
+			}
 		}
 		note := "no ~/.grok/auth.json — run `grok login`"
 		return ProviderLimits{ProviderID: "grok", Label: "Grok", Source: "none", FetchedAtMs: nowMs, Note: &note}
@@ -247,8 +252,10 @@ func CollectGrokLimits(nowMs int64, opts CollectGrokLimitsOptions) ProviderLimit
 
 	if auth.ExpiresAt != nil {
 		if t, err := time.Parse(time.RFC3339, *auth.ExpiresAt); err == nil && t.UnixMilli() < nowMs {
-			if b := borrowGrokWindows(auth.Email, nil, nowMs); b != nil {
-				return *b
+			if !opts.SkipBorrowedWindows {
+				if b := borrowGrokWindows(auth.Email, nil, nowMs); b != nil {
+					return *b
+				}
 			}
 			note := "token expired"
 			if auth.Email != nil {
@@ -307,8 +314,10 @@ func CollectGrokLimits(nowMs int64, opts CollectGrokLimitsOptions) ProviderLimit
 		return *fromRPC
 	}
 
-	if b := borrowGrokWindows(auth.Email, plan, nowMs); b != nil {
-		return *b
+	if !opts.SkipBorrowedWindows {
+		if b := borrowGrokWindows(auth.Email, plan, nowMs); b != nil {
+			return *b
+		}
 	}
 	email := "signed in"
 	if auth.Email != nil {

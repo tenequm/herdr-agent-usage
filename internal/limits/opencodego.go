@@ -400,6 +400,10 @@ func loadCostEventsFromDB(dbPath string) ([]CostEvent, error) {
 // When that fetch is unavailable, another agent's observation of the same
 // account (see windowpool.go) is preferred over the local estimate.
 func CollectOpenCodeLimits(nowMs int64, dbPath string) ProviderLimits {
+	return collectOpenCodeLimits(nowMs, dbPath, false)
+}
+
+func collectOpenCodeLimits(nowMs int64, dbPath string, skipBorrowedWindows bool) ProviderLimits {
 	// A fresh cache entry with no limits is a recent unsuccessful attempt:
 	// fall through to the local estimate without retrying the network.
 	if cached, fresh := loadOpenCodeWebCache(nowMs); fresh {
@@ -418,8 +422,10 @@ func CollectOpenCodeLimits(nowMs int64, dbPath string) ProviderLimits {
 	// The web fetch is the only first-hand source of the official windows and
 	// the local DB below is list-price arithmetic. Another agent's observation
 	// of this opencode-go account is real server data, so it outranks it.
-	if borrowed := borrowWindows("opencode", "OpenCode", "", nowMs); borrowed != nil {
-		return *borrowed
+	if !skipBorrowedWindows {
+		if borrowed := borrowWindows("opencode", "OpenCode", "", nowMs); borrowed != nil {
+			return *borrowed
+		}
 	}
 	if dbPath == "" {
 		dbPath = ResolveOpenCodeLimitsDBPath()

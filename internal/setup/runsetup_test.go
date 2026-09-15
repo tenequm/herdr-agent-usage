@@ -88,3 +88,26 @@ func TestRunSetup_InvalidProviderAllowlistReportsCollectionDisabled(t *testing.T
 		}
 	}
 }
+
+func TestRunSetupPaneOnlyOmitsSidebarAndExcludedProfiles(t *testing.T) {
+	pluginDir := t.TempDir()
+	raw := "[ui]\nsidebar = false\n[providers]\nenabled = [\"claude\"]\n" +
+		"[[grok.profiles]]\nid = \"work\"\ngrok_home = \"/must-not-read\"\n" +
+		"[[opencode.profiles]]\nid = \"work\"\ndata_dir = \"/must-not-read\"\n"
+	if err := os.WriteFile(filepath.Join(pluginDir, "config.toml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := RunSetup(SetupOptions{Env: map[string]string{
+		"HERDR_PLUGIN_CONFIG_DIR": pluginDir,
+		"HERDR_CONFIG":            filepath.Join(t.TempDir(), "config.toml"),
+	}})
+	text := strings.Join(report.Lines, "\n")
+	if strings.Contains(text, "[ui.sidebar.agents]") || strings.Contains(text, "/must-not-read") {
+		t.Fatalf("disabled or excluded setup content leaked:\n%s", text)
+	}
+	for _, want := range []string{"Sidebar disabled: pane-only mode", "profiles not enabled: codex, grok, opencode"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+}

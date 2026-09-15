@@ -220,6 +220,10 @@ func CollectCodexLimits(_ *string, nowMs int64) ProviderLimits {
 // CollectCodexLimitsIn collects one Codex home's windows and stamps them with
 // the given provider id/label so multi-profile rows stay independent.
 func CollectCodexLimitsIn(home, providerID, label string, nowMs int64) ProviderLimits {
+	return collectCodexLimitsIn(home, providerID, label, nowMs, false)
+}
+
+func collectCodexLimitsIn(home, providerID, label string, nowMs int64, skipBorrowedWindows bool) ProviderLimits {
 	paths := ListNewestRolloutPathsIn(home, codexMaxRolloutsToScan)
 	// Newest-first: take the first rollout that carries a rate_limits snapshot.
 	// A just-opened session has session_meta but no token_count yet, so the
@@ -247,13 +251,17 @@ func CollectCodexLimitsIn(home, providerID, label string, nowMs int64) ProviderL
 			note := "stale ~" + itoa(age) + "m ago"
 			out.Note = &note
 		}
-		if borrowed := borrowCodexWindowsIn(home, providerID, label, nowMs); borrowed != nil && borrowed.FetchedAtMs > observedMs {
-			return *borrowed
+		if !skipBorrowedWindows {
+			if borrowed := borrowCodexWindowsIn(home, providerID, label, nowMs); borrowed != nil && borrowed.FetchedAtMs > observedMs {
+				return *borrowed
+			}
 		}
 		return out
 	}
-	if borrowed := borrowCodexWindowsIn(home, providerID, label, nowMs); borrowed != nil {
-		return *borrowed
+	if !skipBorrowedWindows {
+		if borrowed := borrowCodexWindowsIn(home, providerID, label, nowMs); borrowed != nil {
+			return *borrowed
+		}
 	}
 	if len(paths) == 0 {
 		note := "no rollout jsonl under ~/.codex/sessions"

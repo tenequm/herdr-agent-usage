@@ -437,3 +437,50 @@ func TestCollectAllProviderLimits_MultipleGrokAndOpenCodeProfiles(t *testing.T) 
 		}
 	}
 }
+
+func TestCollectAllProviderLimits_FamilyScopedProfileIDs(t *testing.T) {
+	claudeCalls, grokCalls := 0, 0
+	opts := CollectOptions{
+		Claude:          []ClaudeProfileCollector{{ID: "work", Collector: func(*string, int64) ProviderLimits { claudeCalls++; return ProviderLimits{ProviderID: "work"} }}},
+		Grok:            []GrokProfileCollector{{ID: "work", Collector: func(*string, int64) ProviderLimits { grokCalls++; return ProviderLimits{ProviderID: "work"} }}},
+		Allowed:         map[string]bool{"work": true},
+		AllowedFamilies: map[string]bool{"claude": true},
+		AllowedProfiles: map[string]map[string]bool{"claude": {"work": true}},
+	}
+	got := CollectAllProviderLimits(nil, 0, opts)
+	if claudeCalls != 1 || grokCalls != 0 || len(got) != 1 {
+		t.Fatalf("claude=%d grok=%d got=%v", claudeCalls, grokCalls, got)
+	}
+	if opts.AllowsFamily("grok") {
+		t.Fatal("cross-family profile id bypassed the family allowlist")
+	}
+}
+
+func TestConfiguredCollectionBoundDisablesExternalObservers(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[providers]\nenabled = [\"claude\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sources := ResolvedCollectionBound().routedActivitySources()
+	if sources.ompPi || sources.openCode {
+		t.Fatalf("bounded sources = %+v", sources)
+	}
+}
+
+func TestBoundedCollectorsSkipOMPWindowPool(t *testing.T) {
+	old := borrowWindows
+	defer func() { borrowWindows = old }()
+	calls := 0
+	borrowWindows = func(string, string, string, int64) *ProviderLimits { calls++; return nil }
+	dir := t.TempDir()
+	_ = CollectClaudeLimits(0, CollectClaudeLimitsOptions{
+		StatusLineCachePath: filepath.Join(dir, "missing-cache"),
+		ClaudeJSONPath:      filepath.Join(dir, "missing-json"),
+		SkipBorrowedWindows: true,
+	})
+	_ = collectCodexLimitsIn(filepath.Join(dir, "codex"), "codex", "Codex", 0, true)
+	if calls != 0 {
+		t.Fatalf("bounded collectors read OMP window pool %d times", calls)
+	}
+}

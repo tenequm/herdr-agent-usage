@@ -328,3 +328,31 @@ func TestIntersectFilters(t *testing.T) {
 		t.Fatalf("nil b should pass through a: %#v", r)
 	}
 }
+
+func TestPaneBillingModeResolvesProfileBeforeCandidateCheck(t *testing.T) {
+	accountID, paneHarness := "", ""
+	got := PaneBillingMode("claude", OpenPaneSnapshot{PaneID: "p", Agent: "claude"}, BillingDeps{
+		CandidateFamilyIDs:   map[string]bool{"claude": true},
+		CandidateProviderIDs: map[string]bool{"work": true},
+		ResolvePane:          func(OpenPaneSnapshot) (string, string, bool) { return "work", "claude", true },
+		AccountMode:          func(id string) BillingMode { accountID = id; return BillingSubscription },
+		PaneMode:             func(id string, _ OpenPaneSnapshot) BillingMode { paneHarness = id; return BillingSubscription },
+	})
+	if got != BillingSubscription || accountID != "work" || paneHarness != "claude" {
+		t.Fatalf("mode=%v account=%q harness=%q", got, accountID, paneHarness)
+	}
+}
+
+func TestBillingProviderFilterFamilyScopesReusedProfileIDs(t *testing.T) {
+	reads := 0
+	set := BillingProviderFilter(nil, true, BillingDeps{
+		ClaudeProfileIDs:    []string{"work"},
+		CodexProfileIDs:     []string{"work"},
+		CandidateFamilyIDs:  map[string]bool{"codex": true},
+		CandidateProfileIDs: map[string]map[string]bool{"codex": {"work": true}},
+		AccountMode:         func(string) BillingMode { reads++; return BillingSubscription },
+	})
+	if reads != 1 || !set["work"] {
+		t.Fatalf("reads=%d set=%v", reads, set)
+	}
+}

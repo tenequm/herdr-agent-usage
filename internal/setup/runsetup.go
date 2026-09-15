@@ -32,7 +32,7 @@ type SetupReport struct {
 func RunSetup(options SetupOptions) SetupReport {
 	env := options.Env
 	if env == nil {
-		env = envFromOS()
+		env = ProcessEnv()
 	}
 	var lines []string
 	pluginDir := ResolvePluginConfigDir(env)
@@ -74,34 +74,40 @@ func RunSetup(options SetupOptions) SetupReport {
 	for _, id := range pluginCfg.UnknownProviderFamilies {
 		lines = append(lines, "  ! unknown provider family ignored: "+id)
 	}
+	if pluginCfg.DecodeError != "" {
+		lines = append(lines, "  ! config decode error; security-sensitive settings failed closed: "+pluginCfg.DecodeError)
+	}
 	lines = append(lines, "  state.dir="+pluginstate.GlobalDir(home))
 	if pluginCfg.InvalidStateDir != "" {
-		lines = append(lines, "  ! state.dir ignored (must resolve to an absolute path): "+pluginCfg.InvalidStateDir)
+		lines = append(lines, "  ! state.dir ignored (must be absolute and narrower than the home directory): "+pluginCfg.InvalidStateDir)
 	}
 	for _, id := range pluginCfg.InvalidProfileIDs {
-		lines = append(lines, "  ! unsafe profile id ignored: "+id)
+		lines = append(lines, "  ! invalid profile id ignored: "+id)
 	}
-	lines = append(lines, claudeProfileReportLines(
-		pluginCfg.ClaudeProfiles,
-		ResolveClaudeProfiles(env),
-		home,
-	)...)
-	lines = append(lines, codexProfileReportLines(
-		pluginCfg.CodexProfiles,
-		ResolveCodexProfiles(env),
-		home,
-	)...)
-	lines = append(lines, grokProfileReportLines(
-		pluginCfg.GrokProfiles,
-		ResolveGrokProfiles(env),
-		home,
-	)...)
-	lines = append(lines, openCodeProfileReportLines(
-		pluginCfg.OpenCodeProfiles,
-		ResolveOpenCodeProfiles(env),
-		env,
-		home,
-	)...)
+	excludedFamilies := make([]string, 0, 4)
+	if pluginCfg.AllowsProviderFamily("claude") {
+		lines = append(lines, claudeProfileReportLines(pluginCfg.ClaudeProfiles, ResolveClaudeProfiles(env), home)...)
+	} else {
+		excludedFamilies = append(excludedFamilies, "claude")
+	}
+	if pluginCfg.AllowsProviderFamily("codex") {
+		lines = append(lines, codexProfileReportLines(pluginCfg.CodexProfiles, ResolveCodexProfiles(env), home)...)
+	} else {
+		excludedFamilies = append(excludedFamilies, "codex")
+	}
+	if pluginCfg.AllowsProviderFamily("grok") {
+		lines = append(lines, grokProfileReportLines(pluginCfg.GrokProfiles, ResolveGrokProfiles(env), home)...)
+	} else {
+		excludedFamilies = append(excludedFamilies, "grok")
+	}
+	if pluginCfg.AllowsProviderFamily("opencode") {
+		lines = append(lines, openCodeProfileReportLines(pluginCfg.OpenCodeProfiles, ResolveOpenCodeProfiles(env), env, home)...)
+	} else {
+		excludedFamilies = append(excludedFamilies, "opencode")
+	}
+	if len(excludedFamilies) > 0 {
+		lines = append(lines, "· profiles not enabled: "+strings.Join(excludedFamilies, ", "), "")
+	}
 
 	toastWrote := false
 	if options.WriteToast {
@@ -133,10 +139,18 @@ func RunSetup(options SetupOptions) SetupReport {
 		"",
 		"── Paste into ~/.config/herdr/config.toml ──",
 		"",
-		"# Sidebar context + provider limit rows (Herdr 0.7.4+)",
-		"# If [ui.sidebar.agents] already exists, merge these rows; do not add a duplicate table.",
-		strings.TrimRight(SidebarRowsSnippet(), "\n"),
-		"",
+	)
+	if pluginCfg.Sidebar {
+		lines = append(lines,
+			"# Sidebar context + provider limit rows (Herdr 0.7.4+)",
+			"# If [ui.sidebar.agents] already exists, merge these rows; do not add a duplicate table.",
+			strings.TrimRight(SidebarRowsSnippet(), "\n"),
+			"",
+		)
+	} else {
+		lines = append(lines, "Sidebar disabled: pane-only mode; use the prefix keybinding for the limits overlay.", "")
+	}
+	lines = append(lines,
 		"# Toast delivery (required for rate-limit notifications)",
 		strings.TrimRight(ToastConfigSnippet(), "\n"),
 		"",
@@ -167,7 +181,7 @@ func RunSetup(options SetupOptions) SetupReport {
 	return SetupReport{Lines: lines, PluginConfigSeeded: seeded, ToastWrote: toastWrote}
 }
 
-func envFromOS() map[string]string {
+func ProcessEnv() map[string]string {
 	env := map[string]string{}
 	for _, e := range os.Environ() {
 		if i := strings.IndexByte(e, '='); i >= 0 {

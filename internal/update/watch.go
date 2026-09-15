@@ -13,7 +13,6 @@ package update
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/limits"
@@ -157,13 +156,7 @@ func stopped(stop <-chan struct{}) bool {
 }
 
 func watchConfigDir() string {
-	env := make(map[string]string)
-	for _, entry := range os.Environ() {
-		if i := strings.IndexByte(entry, '='); i >= 0 {
-			env[entry[:i]] = entry[i+1:]
-		}
-	}
-	return setup.ResolvePluginConfigDir(env)
+	return setup.ResolvePluginConfigDir(setup.ProcessEnv())
 }
 
 func watchConfigAllowsRun(configDir, stateRoot string) bool {
@@ -172,7 +165,8 @@ func watchConfigAllowsRun(configDir, stateRoot string) bool {
 }
 
 // RunWatch holds the singleton lock and refreshes idle $limit rows until
-// the process is killed. A second instance exits without collecting.
+// configuration disables it or the process exits. A second instance exits
+// without collecting.
 func RunWatch(cwd *string, now func() time.Time, sleep func(time.Duration), stop <-chan struct{}) {
 	if now == nil {
 		now = time.Now

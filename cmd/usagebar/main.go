@@ -39,6 +39,9 @@ func main() {
 	args := os.Args[2:]
 	env := environment()
 	config, _ := configureRuntime(env)
+	if !config.Sidebar && (cmd == "limits" || cmd == "panel") {
+		update.ClearOpenAgentPaneMetadata()
+	}
 	if dispatchSidebarCommand(cmd, args, config, env, sidebarCommandActions{
 		update:         update.RunUpdate,
 		startup:        update.RepublishOpenAgentPanes,
@@ -46,6 +49,8 @@ func main() {
 		watch: func() {
 			update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil)
 		},
+		clearCurrent: func() { update.ClearPaneMetadata(env["HERDR_PANE_ID"]) },
+		clearAll:     update.ClearOpenAgentPaneMetadata,
 	}) {
 		return
 	}
@@ -97,6 +102,8 @@ type sidebarCommandActions struct {
 	startup        func()
 	startIdleWatch func()
 	watch          func()
+	clearCurrent   func()
+	clearAll       func()
 }
 
 func dispatchSidebarCommand(
@@ -108,11 +115,23 @@ func dispatchSidebarCommand(
 ) bool {
 	switch command {
 	case "status", "update":
+		if !config.Sidebar {
+			if actions.clearCurrent != nil {
+				actions.clearCurrent()
+			}
+			return true
+		}
 		// Force when invoked as a plugin action (refresh).
 		force := env["HERDR_PLUGIN_ACTION_ID"] != "" || hasFlag(args, "--force")
 		runSidebarActions(config.Sidebar, func() { actions.update(force) }, actions.startIdleWatch)
 		return true
 	case "startup":
+		if !config.Sidebar {
+			if actions.clearAll != nil {
+				actions.clearAll()
+			}
+			return true
+		}
 		// Herdr [[startup]] / live handoff: restore every open pane's tokens.
 		runSidebarActions(config.Sidebar, actions.startup, actions.startIdleWatch)
 		return true
@@ -206,15 +225,7 @@ func flagValue(args []string, flag string) string {
 	return ""
 }
 
-func environment() map[string]string {
-	env := map[string]string{}
-	for _, entry := range os.Environ() {
-		if i := strings.IndexByte(entry, '='); i >= 0 {
-			env[entry[:i]] = entry[i+1:]
-		}
-	}
-	return env
-}
+func environment() map[string]string { return setup.ProcessEnv() }
 
 // notificationsEnabled returns the plugin-level switch for usage-limit toasts.
 // Statusline rendering and provider notifications remain available when off.
@@ -288,15 +299,17 @@ type panelSnapshot struct {
 	providers     []limits.ProviderLimits
 	apiUsage      []limits.APIProviderUsage
 	lowCachePanes []limits.LowCachePane
+	emptyMessage  string
 }
 
-// collectPanel gathers everything the panel shows. activeOnly hides providers
-// that have no open agent pane in Herdr (the panel default; --all overrides).
+// collectPanel gathers everything the panel shows. It derives active-only and
+// allowlist behavior from one fresh options snapshot on every call.
 // When the pane query fails, all subscription providers are shown (fail-open).
-func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
+func collectPanel(nowMs int64, args []string) panelSnapshot {
 	snaps, panesOK := openPaneSnapshots()
 	opts := limits.DefaultCollectOptions()
-	allowlistConfigured := opts.Allowed != nil
+	activeOnly, emptyMessage := limitsPaneMode(args, opts)
+	allowlistConfigured := opts.AllowedFamilies != nil
 	if allowlistConfigured {
 		snaps = opts.FilterAllowedPanes(snaps)
 	}
@@ -327,6 +340,7 @@ func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
 		providers:     res.Providers,
 		apiUsage:      limits.CollectAPIProviderUsage(snaps, nowMs),
 		lowCachePanes: lowCachePanes,
+		emptyMessage:  emptyMessage,
 	}
 }
 
@@ -365,7 +379,11 @@ func paintFrame(text string) {
 	_, _ = os.Stdout.WriteString("\x1b[H\x1b[2J\x1b[3J" + text + "\x1b[J\x1b[H")
 }
 
-func limitsPaneMode(args []string, allowlistConfigured bool) (bool, string) {
+func limitsPaneMode(args []string, opts limits.CollectOptions) (bool, string) {
+	allowlistConfigured := opts.AllowedFamilies != nil
+	if allowlistConfigured && len(opts.AllowedFamilies) == 0 {
+		return false, "(no providers enabled; check [providers].enabled)"
+	}
 	activeOnly := !hasFlag(args, "--all") && !allowlistConfigured
 	if activeOnly {
 		return true, "(no agent panes open)"
@@ -376,21 +394,19 @@ func limitsPaneMode(args []string, allowlistConfigured bool) (bool, string) {
 func runLimitsPane(args []string) error {
 	once := hasFlag(args, "--once")
 	// Default: show only providers with an open agent pane; --all shows every provider.
-	_, allowlistConfigured := limits.ResolvedProviderAllowlist()
-	activeOnly, emptyMessage := limitsPaneMode(args, allowlistConfigured)
-	layoutFor := func() limits.PanelLayout {
+	layoutFor := func(emptyMessage string) limits.PanelLayout {
 		layout := currentLayout()
 		layout.EmptyMessage = emptyMessage
 		return layout
 	}
 	formatPanel := func(snap panelSnapshot, nowMs int64) string {
-		layout := layoutFor()
+		layout := layoutFor(snap.emptyMessage)
 		layout.LowCachePanes = snap.lowCachePanes
 		return limits.FormatUsagePanel(snap.providers, snap.apiUsage, nowMs, layout)
 	}
 	if once || !term.IsTerminal(int(os.Stdout.Fd())) {
 		nowMs := time.Now().UnixMilli()
-		snap := collectPanel(nowMs, activeOnly)
+		snap := collectPanel(nowMs, args)
 		text := formatPanel(snap, nowMs)
 		fmt.Print(text)
 		if !strings.HasSuffix(text, "\n") {
@@ -427,7 +443,7 @@ func runLimitsPane(args []string) error {
 
 	renderFull := func() {
 		nowMs := time.Now().UnixMilli()
-		cachedSnap = collectPanel(nowMs, activeOnly)
+		cachedSnap = collectPanel(nowMs, args)
 		cachedLoaded = true
 		cachedNowMs = nowMs
 		publishPanelSidebar(cachedSnap, nowMs)
@@ -585,7 +601,6 @@ func runStatusLine() {
 }
 
 func runStatusLineInput(stdinJSON string, nowMs int64) {
-
 	// Route this statusLine invocation to the profile matching its own
 	// CLAUDE_CONFIG_DIR. The statusLine runs inside the Claude process, so the
 	// env var identifies the account; when it is unset Claude is running the
@@ -683,8 +698,16 @@ func describeProfileDirs(profiles []claude.ClaudeProfile) string {
 // runOpenCodeCheck reports each stage of the OpenCode Go usage path so a
 // failure can be attributed to the browser session or to the fetch, without
 // printing any cookie value.
+func allowOpenCodeCheck(bound limits.CollectionBound, out io.Writer) bool {
+	if bound.AllowsFamily("opencode") {
+		return true
+	}
+	fmt.Fprintln(out, "opencode is not in [providers].enabled")
+	return false
+}
+
 func runOpenCodeCheck() {
-	if !limits.DefaultCollectOptions().AllowsFamily("opencode") {
+	if !allowOpenCodeCheck(limits.ResolvedCollectionBound(), os.Stdout) {
 		return
 	}
 	nowMs := time.Now().UnixMilli()
@@ -741,7 +764,7 @@ func runOpenCodeCheck() {
 
 func runCollectJSON(args []string) {
 	nowMs := time.Now().UnixMilli()
-	snap := collectPanel(nowMs, !hasFlag(args, "--all"))
+	snap := collectPanel(nowMs, args)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(struct {

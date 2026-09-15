@@ -228,6 +228,8 @@ type BillingDeps struct {
 	// CandidateProviderIDs bounds account/session inspection before collectors
 	// run. nil retains the historical all-provider behavior.
 	CandidateProviderIDs map[string]bool
+	// CandidateProfileIDs is the family-scoped form used by production.
+	CandidateProfileIDs map[string]map[string]bool
 	// CandidateFamilyIDs prevents pane resolution for harness families outside
 	// the configured allowlist. nil retains the historical behavior.
 	CandidateFamilyIDs map[string]bool
@@ -235,19 +237,32 @@ type BillingDeps struct {
 
 // PaneBillingMode combines account- and session-level evidence for one pane.
 func PaneBillingMode(providerID string, pane OpenPaneSnapshot, deps BillingDeps) BillingMode {
-	if deps.CandidateFamilyIDs != nil && !deps.CandidateFamilyIDs[strings.ToLower(pane.Agent)] {
+	harnessID := strings.ToLower(pane.Agent)
+	if deps.CandidateFamilyIDs != nil && !deps.CandidateFamilyIDs[harnessID] {
 		return BillingUnknown
 	}
-	if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[providerID] {
+	resolvedProviderID := providerID
+	if deps.ResolvePane != nil {
+		resolved, resolvedHarness, ok := deps.ResolvePane(pane)
+		if ok {
+			resolvedProviderID = resolved
+			harnessID = resolvedHarness
+		}
+	}
+	if deps.CandidateProfileIDs != nil {
+		if !deps.CandidateProfileIDs[harnessID][resolvedProviderID] {
+			return BillingUnknown
+		}
+	} else if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[resolvedProviderID] {
 		return BillingUnknown
 	}
 	account := BillingUnknown
 	if deps.AccountMode != nil {
-		account = deps.AccountMode(providerID)
+		account = deps.AccountMode(resolvedProviderID)
 	}
 	session := BillingUnknown
 	if deps.PaneMode != nil {
-		session = deps.PaneMode(providerID, pane)
+		session = deps.PaneMode(harnessID, pane)
 	}
 	return CombineBillingModes(account, session)
 }
@@ -275,12 +290,23 @@ func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps 
 		grokIDs = []string{grok.Provider.AgentID()}
 	}
 
-	allIDs := make([]string, 0, len(claudeIDs)+len(codexIDs)+len(openCodeIDs)+len(grokIDs)+len(singleCollectorProviderIDs))
-	allIDs = append(allIDs, claudeIDs...)
-	allIDs = append(allIDs, codexIDs...)
-	allIDs = append(allIDs, openCodeIDs...)
-	allIDs = append(allIDs, grokIDs...)
-	allIDs = append(allIDs, singleCollectorProviderIDs...)
+	type billingCandidate struct {
+		familyID   string
+		providerID string
+	}
+	allIDs := make([]billingCandidate, 0, len(claudeIDs)+len(codexIDs)+len(openCodeIDs)+len(grokIDs)+len(singleCollectorProviderIDs))
+	appendFamily := func(familyID string, ids []string) {
+		for _, id := range ids {
+			allIDs = append(allIDs, billingCandidate{familyID: familyID, providerID: id})
+		}
+	}
+	appendFamily(claudeprovider.Provider.AgentID(), claudeIDs)
+	appendFamily(codex.Provider.AgentID(), codexIDs)
+	appendFamily(opencode.Provider.AgentID(), openCodeIDs)
+	appendFamily(grok.Provider.AgentID(), grokIDs)
+	for _, id := range singleCollectorProviderIDs {
+		allIDs = append(allIDs, billingCandidate{familyID: id, providerID: id})
+	}
 
 	type billedPane struct {
 		harnessID string
@@ -305,8 +331,13 @@ func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps 
 	}
 
 	set := make(map[string]bool)
-	for _, providerID := range allIDs {
-		if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[providerID] {
+	for _, candidate := range allIDs {
+		providerID := candidate.providerID
+		if deps.CandidateProfileIDs != nil {
+			if !deps.CandidateProfileIDs[candidate.familyID][providerID] {
+				continue
+			}
+		} else if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[providerID] {
 			continue
 		}
 		account := BillingUnknown

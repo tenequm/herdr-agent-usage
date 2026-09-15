@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,8 +25,20 @@ func TestManifestBuildHookCompilesThisCheckout(t *testing.T) {
 	if !strings.Contains(manifest, `command = ["bash", "bin/ensure-binary.sh", "--build"]`) {
 		t.Fatal("manifest build hook does not require a source build")
 	}
-	if strings.Contains(manifest, `command = ["bash", "bin/ensure-binary.sh", "--in-tree"]`) {
-		t.Fatal("manifest build hook may download an unverified release binary")
+	deadMode := "--in" + "-tree"
+	if strings.Contains(manifest, deadMode) {
+		t.Fatal("dead legacy download mode remains in the manifest")
+	}
+	scriptRaw, err := os.ReadFile(filepath.Join("..", "..", "bin", "ensure-binary.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(scriptRaw)
+	if !strings.Contains(script, "CGO_ENABLED=0 go build") {
+		t.Fatal("source build does not disable cgo")
+	}
+	if strings.Contains(script, deadMode) {
+		t.Fatal("dead legacy download mode remains in ensure-binary.sh")
 	}
 }
 
@@ -70,17 +83,27 @@ func TestSidebarCommandGates(t *testing.T) {
 	for _, command := range []string{"status", "update", "startup", "watch"} {
 		t.Run(command, func(t *testing.T) {
 			calls := 0
+			clears := 0
 			actions := sidebarCommandActions{
 				update:         func(bool) { calls++ },
 				startup:        func() { calls++ },
 				startIdleWatch: func() { calls++ },
 				watch:          func() { calls++ },
+				clearCurrent:   func() { clears++ },
+				clearAll:       func() { clears++ },
 			}
 			if !dispatchSidebarCommand(command, nil, setup.PluginConfig{Sidebar: false}, nil, actions) {
 				t.Fatalf("%s was not handled by sidebar dispatch", command)
 			}
 			if calls != 0 {
-				t.Fatalf("disabled %s made %d calls", command, calls)
+				t.Fatalf("disabled %s made %d publishing calls", command, calls)
+			}
+			wantClears := 0
+			if command == "status" || command == "update" || command == "startup" {
+				wantClears = 1
+			}
+			if clears != wantClears {
+				t.Fatalf("disabled %s clears=%d, want %d", command, clears, wantClears)
 			}
 		})
 	}
@@ -109,12 +132,12 @@ func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
 }
 
 func TestLimitsPaneEmptyMessageModes(t *testing.T) {
-	activeOnly, emptyMessage := limitsPaneMode(nil, false)
+	activeOnly, emptyMessage := limitsPaneMode(nil, limits.CollectOptions{})
 	if !activeOnly || emptyMessage != "(no agent panes open)" {
 		t.Fatalf("default mode = (%t, %q)", activeOnly, emptyMessage)
 	}
 
-	activeOnly, emptyMessage = limitsPaneMode(nil, true)
+	activeOnly, emptyMessage = limitsPaneMode(nil, limits.CollectOptions{AllowedFamilies: map[string]bool{"claude": true}})
 	if activeOnly || strings.Contains(emptyMessage, "pane") {
 		t.Fatalf("allowlist mode = (%t, %q)", activeOnly, emptyMessage)
 	}
@@ -341,5 +364,22 @@ func TestStatusLineNotificationsDisabled(t *testing.T) {
 
 	if notifications != 0 {
 		t.Fatalf("disabled notifications sent %d toasts", notifications)
+	}
+}
+
+func TestLimitsPaneEmptyMessageInvalidAllowlist(t *testing.T) {
+	activeOnly, message := limitsPaneMode(nil, limits.CollectOptions{AllowedFamilies: map[string]bool{}})
+	if activeOnly || !strings.Contains(message, "[providers].enabled") {
+		t.Fatalf("mode = (%t, %q)", activeOnly, message)
+	}
+}
+
+func TestOpenCodeCheckExplainsExcludedFamily(t *testing.T) {
+	var out bytes.Buffer
+	if allowOpenCodeCheck(limits.CollectionBound{Configured: true, Families: map[string]bool{}}, &out) {
+		t.Fatal("excluded OpenCode check was allowed")
+	}
+	if got := strings.TrimSpace(out.String()); got != "opencode is not in [providers].enabled" {
+		t.Fatalf("message = %q", got)
 	}
 }

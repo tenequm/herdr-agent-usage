@@ -164,7 +164,11 @@ func PublishCollectedLimitsWith(
 	if !ok {
 		return
 	}
-	collectOptions := limits.DefaultCollectOptions()
+	bound := limits.ResolvedCollectionBound()
+	collectOptions := limits.CollectOptions{}
+	if bound.Configured {
+		collectOptions.AllowedFamilies = bound.Families
+	}
 	claudeProfiles := limits.ResolvedClaudeProfiles()
 	codexProfiles := limits.ResolvedCodexProfiles()
 	grokProfiles := limits.ResolvedGrokProfiles()

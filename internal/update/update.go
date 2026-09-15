@@ -243,7 +243,8 @@ func RunUpdateForPane(paneID string, force bool) {
 	if p == nil {
 		return
 	}
-	if !limits.DefaultCollectOptions().AllowsFamily(p.AgentID()) {
+	if !limits.ResolvedCollectionBound().AllowsFamily(p.AgentID()) {
+		ClearPaneMetadata(paneID)
 		return
 	}
 

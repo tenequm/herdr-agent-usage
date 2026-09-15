@@ -55,6 +55,11 @@ type CollectOptions struct {
 	// Only, callers must not replace it when applying pane or billing filters.
 	// nil means all registered quota families (backward-compatible default).
 	Allowed map[string]bool
+	// AllowedFamilies is the configured family bound. AllowedProfiles keeps
+	// profile ids scoped to their family so equal ids in different families do
+	// not grant each other access. nil preserves the unrestricted legacy mode.
+	AllowedFamilies map[string]bool
+	AllowedProfiles map[string]map[string]bool
 }
 
 // AllowsFamily reports whether a provider family is inside the configured
@@ -62,6 +67,9 @@ type CollectOptions struct {
 // session or credential stores.
 func (o CollectOptions) AllowsFamily(familyID string) bool {
 	familyID = strings.ToLower(familyID)
+	if o.AllowedFamilies != nil {
+		return o.AllowedFamilies[familyID]
+	}
 	if o.Allowed == nil {
 		return true
 	}
@@ -78,11 +86,18 @@ func (o CollectOptions) AllowsFamily(familyID string) bool {
 	return false
 }
 
+func (o CollectOptions) allowsProfile(familyID, profileID string) bool {
+	if o.AllowedProfiles != nil {
+		return o.AllowedProfiles[familyID][profileID]
+	}
+	return o.Allowed == nil || o.Allowed[profileID]
+}
+
 // FilterAllowedPanes removes panes whose harness family is outside the global
 // collection bound before activity, cache, billing, or API-usage adapters can
 // inspect their session stores.
 func (o CollectOptions) FilterAllowedPanes(panes []OpenPaneSnapshot) []OpenPaneSnapshot {
-	if o.Allowed == nil {
+	if o.Allowed == nil && o.AllowedFamilies == nil {
 		return panes
 	}
 	out := make([]OpenPaneSnapshot, 0, len(panes))
@@ -112,37 +127,47 @@ func collectorIDs(specs []ClaudeProfileCollector) []string {
 // resolved collector specs used by collection, so no provider list or profile
 // id is duplicated here.
 func defaultProfileFamilySpecs(opts CollectOptions) []profileFamilySpec {
-	return []profileFamilySpec{
+	specs := []profileFamilySpec{
 		{claude.Provider.AgentID(), collectorIDs(opts.Claude)},
 		{codex.Provider.AgentID(), collectorIDs(opts.Codex)},
 		{opencode.Provider.AgentID(), collectorIDs(opts.OpenCode)},
 		{grok.Provider.AgentID(), collectorIDs(opts.Grok)},
 	}
+	for _, spec := range singleCollectorQuotaSpecs {
+		specs = append(specs, profileFamilySpec{spec.id, []string{spec.id}})
+	}
+	return specs
 }
 
-func expandEnabledFamilies(opts CollectOptions, enabled []string, configured bool) map[string]bool {
+func expandEnabledFamilies(opts CollectOptions, enabled []string, configured bool) (map[string]bool, map[string]bool, map[string]map[string]bool) {
 	if !configured {
-		return nil
+		return nil, nil, nil
 	}
 	wanted := make(map[string]bool, len(enabled))
 	for _, id := range enabled {
 		wanted[id] = true
 	}
 	allowed := make(map[string]bool)
+	allowedFamilies := make(map[string]bool)
+	allowedProfiles := make(map[string]map[string]bool)
 	for _, family := range defaultProfileFamilySpecs(opts) {
 		if !wanted[family.familyID] {
 			continue
 		}
+		allowedFamilies[family.familyID] = true
+		allowedProfiles[family.familyID] = make(map[string]bool, len(family.profileIDs))
 		for _, id := range family.profileIDs {
 			allowed[id] = true
+			allowedProfiles[family.familyID][id] = true
 		}
 	}
-	return allowed
+	return allowed, allowedFamilies, allowedProfiles
 }
 
 // DefaultCollectOptions wires production local collectors (no network), one
 // collector per configured Claude, Codex, Grok, or OpenCode profile.
 func DefaultCollectOptions() CollectOptions {
+	enabledFamilies, allowlistConfigured := ResolvedProviderAllowlist()
 	profiles := ResolvedClaudeProfiles()
 	multiProfile := len(profiles) > 1
 	claudeCollectors := make([]ClaudeProfileCollector, len(profiles))
@@ -154,6 +179,7 @@ func DefaultCollectOptions() CollectOptions {
 				pl := CollectClaudeLimits(nowMs, CollectClaudeLimitsOptions{
 					StatusLineCachePath: profile.LimitsCache,
 					ClaudeJSONPath:      profile.JSONPath,
+					SkipBorrowedWindows: allowlistConfigured,
 				})
 				pl.ProviderID = profile.ID
 				pl.Label = profile.Label
@@ -174,7 +200,7 @@ func DefaultCollectOptions() CollectOptions {
 			ID:    profile.ID,
 			Label: profile.Label,
 			Collector: func(_ *string, nowMs int64) ProviderLimits {
-				pl := CollectCodexLimitsIn(profile.Home, profile.ID, profile.Label, nowMs)
+				pl := collectCodexLimitsIn(profile.Home, profile.ID, profile.Label, nowMs, allowlistConfigured)
 				return applyCodexProfileGrouping(pl, profile, multiCodex)
 			},
 		}
@@ -192,7 +218,7 @@ func DefaultCollectOptions() CollectOptions {
 				if !profile.Implicit {
 					authPath = filepath.Join(profile.Home, "auth.json")
 				}
-				pl := CollectGrokLimits(nowMs, CollectGrokLimitsOptions{AuthPath: authPath})
+				pl := CollectGrokLimits(nowMs, CollectGrokLimitsOptions{AuthPath: authPath, SkipBorrowedWindows: allowlistConfigured})
 				pl.ProviderID = profile.ID
 				pl.Label = profile.Label
 				return applyGrokProfileGrouping(pl, profile, multiGrok)
@@ -212,7 +238,7 @@ func DefaultCollectOptions() CollectOptions {
 				if !profile.Implicit {
 					dbPath = opencode.ResolveOpenCodeDBPathIn(profile.DataDir)
 				}
-				pl := CollectOpenCodeLimits(nowMs, dbPath)
+				pl := collectOpenCodeLimits(nowMs, dbPath, allowlistConfigured)
 				pl.ProviderID = profile.ID
 				pl.Label = profile.Label
 				return applyOpenCodeProfileGrouping(pl, profile, multiOpenCode)
@@ -226,8 +252,7 @@ func DefaultCollectOptions() CollectOptions {
 		Grok:     grokCollectors,
 		OpenCode: openCodeCollectors,
 	}
-	enabledFamilies, allowlistConfigured := ResolvedProviderAllowlist()
-	opts.Allowed = expandEnabledFamilies(opts, enabledFamilies, allowlistConfigured)
+	opts.Allowed, opts.AllowedFamilies, opts.AllowedProfiles = expandEnabledFamilies(opts, enabledFamilies, allowlistConfigured)
 	return opts
 }
 
@@ -250,8 +275,8 @@ var singleCollectorQuotaSpecs = []struct {
 // (collectors never run). Pass DefaultCollectOptions() for production local
 // collectors.
 func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []ProviderLimits {
-	allowed := func(id string) bool {
-		return opts.Allowed == nil || opts.Allowed[id]
+	allowed := func(familyID, id string) bool {
+		return opts.allowsProfile(familyID, id)
 	}
 	collect := func(collector LimitsCollector, id, label string) ProviderLimits {
 		if collector != nil {
@@ -285,27 +310,27 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 
 	base := make([]ProviderLimits, 0, len(claudeSpecs)+len(codexSpecs)+len(openCodeSpecs)+len(grokSpecs)+len(singleCollectorQuotaSpecs))
 	for _, spec := range claudeSpecs {
-		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
+		if allowed(claude.Provider.AgentID(), spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range codexSpecs {
-		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
+		if allowed(codex.Provider.AgentID(), spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range openCodeSpecs {
-		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
+		if allowed(opencode.Provider.AgentID(), spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range grokSpecs {
-		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
+		if allowed(grok.Provider.AgentID(), spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range singleCollectorQuotaSpecs {
-		if allowed(spec.id) && (opts.Only == nil || opts.Only[spec.id]) {
+		if allowed(spec.id, spec.id) && (opts.Only == nil || opts.Only[spec.id]) {
 			base = append(base, collect(spec.field(opts), spec.id, spec.label))
 		}
 	}

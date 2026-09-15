@@ -83,3 +83,27 @@ func TestRepublishOpenAgentPanesWith_SkipsEmptyPaneID(t *testing.T) {
 		t.Fatalf("updated %v, want [w1:p3]", got)
 	}
 }
+
+func TestClearOpenAgentPaneMetadataWith(t *testing.T) {
+	var got []string
+	clearOpenAgentPaneMetadataWith(func() ([]herdrcli.OpenAgentPane, bool) {
+		return []herdrcli.OpenAgentPane{{PaneID: "p1"}, {PaneID: ""}, {PaneID: "p2"}}, true
+	}, func(id string) { got = append(got, id) })
+	if !reflect.DeepEqual(got, []string{"p1", "p2"}) {
+		t.Fatalf("cleared %v", got)
+	}
+}
+
+func TestClearPaneMetadataWithClearsEveryOwnedToken(t *testing.T) {
+	var got []string
+	clearPaneMetadataWith(metadataTokenWriter{clear: func(paneID, source, name string) bool {
+		if paneID != "p1" || source != herdrcli.Source {
+			t.Fatalf("target=%q source=%q", paneID, source)
+		}
+		got = append(got, name)
+		return true
+	}}, "p1")
+	if !reflect.DeepEqual(got, ownedMetadataTokenNames) {
+		t.Fatalf("cleared %v, want %v", got, ownedMetadataTokenNames)
+	}
+}

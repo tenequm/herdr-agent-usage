@@ -61,6 +61,33 @@ func DefaultBillingDeps() BillingDeps {
 		openCodeIDs[i] = profile.ID
 	}
 
+	var candidateProviders map[string]bool
+	var candidateProfiles map[string]map[string]bool
+	if allowlistConfigured {
+		candidateProviders = make(map[string]bool)
+		candidateProfiles = make(map[string]map[string]bool)
+		add := func(familyID string, profileIDs []string) {
+			if !candidateFamilies[familyID] {
+				return
+			}
+			candidateProfiles[familyID] = make(map[string]bool, len(profileIDs))
+			for _, id := range profileIDs {
+				candidateProviders[id] = true
+				candidateProfiles[familyID][id] = true
+			}
+		}
+		add(claude.Provider.AgentID(), ids)
+		add(codex.Provider.AgentID(), codexIDs)
+		add(grok.Provider.AgentID(), grokIDs)
+		add(opencode.Provider.AgentID(), openCodeIDs)
+		for _, id := range singleCollectorProviderIDs {
+			if candidateFamilies[id] {
+				candidateProviders[id] = true
+				candidateProfiles[id] = map[string]bool{id: true}
+			}
+		}
+	}
+
 	return BillingDeps{
 		PaneMode: func(harnessID string, pane OpenPaneSnapshot) BillingMode {
 			providerID := harnessID
@@ -86,7 +113,8 @@ func DefaultBillingDeps() BillingDeps {
 		ResolvePane: func(pane OpenPaneSnapshot) (string, string, bool) {
 			return resolveBilledPane(profiles, codexProfiles, grokProfiles, openCodeProfiles, pane)
 		},
-		CandidateProviderIDs: DefaultCollectOptions().Allowed,
+		CandidateProviderIDs: candidateProviders,
+		CandidateProfileIDs:  candidateProfiles,
 		CandidateFamilyIDs:   candidateFamilies,
 	}
 }

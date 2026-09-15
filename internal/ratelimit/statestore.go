@@ -1,6 +1,7 @@
 /**
  * Persists rate-limit notification state with an O_EXCL lock file under
- * ~/.claude/herdr-usagebar/ (or USAGEBAR_STATE_DIR).
+ * the configured plugin state root, an explicit environment override, or the
+ * historical ~/.claude/herdr-usagebar directory.
  */
 package ratelimit
 
@@ -21,7 +22,7 @@ const (
 
 // baseDir is the single-default notify-state dir. Per-profile isolation is
 // threaded explicitly via the *In variants (resolveDir); the default here stays
-// byte-identical to the historical location so it resolves the same regardless
+// at the historical legacy location so it resolves the same regardless
 // of whether CLAUDE_CONFIG_DIR is visible (it is not on the read side).
 func baseDir() string {
 	if v := os.Getenv("USAGEBAR_STATE_DIR"); v != "" {
