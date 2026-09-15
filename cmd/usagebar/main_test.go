@@ -13,6 +13,20 @@ import (
 	"github.com/senna-lang/herdr-agent-usage/internal/updatecheck"
 )
 
+func TestManifestBuildHookCompilesThisCheckout(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := string(raw)
+	if !strings.Contains(manifest, `command = ["bash", "bin/ensure-binary.sh", "--build"]`) {
+		t.Fatal("manifest build hook does not require a source build")
+	}
+	if strings.Contains(manifest, `command = ["bash", "bin/ensure-binary.sh", "--in-tree"]`) {
+		t.Fatal("manifest build hook may download an unverified release binary")
+	}
+}
+
 // TestNotificationsEnabledHonorsPluginConfig ensures both notification entrypoints
 // use the documented [notify].enabled switch.
 func TestNotificationsEnabledHonorsPluginConfig(t *testing.T) {
