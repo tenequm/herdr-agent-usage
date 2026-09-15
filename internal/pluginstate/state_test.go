@@ -127,3 +127,42 @@ func TestEnsureDirTightensOwnedRootAndLeavesExistingChildModes(t *testing.T) {
 		t.Fatal("symlinked state child was followed")
 	}
 }
+
+func TestAtomicWriteFollowsConfiguredRootSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(target, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "state")
+	if err := os.Symlink(target, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	restore := Configure(root)
+	defer restore()
+
+	path := filepath.Join(root, "claude", "base", "x.json")
+	if err := AtomicWrite(path, []byte("state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "state" {
+		t.Fatalf("read = %q, %v", raw, err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("target mode = %v, %v", info, err)
+	}
+
+	outside := filepath.Join(base, "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(target, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDir(filepath.Join(root, "link", "escape")); err == nil {
+		t.Fatal("symlinked state child was followed")
+	}
+}
