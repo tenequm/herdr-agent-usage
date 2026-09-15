@@ -14,9 +14,12 @@ import (
 	"github.com/senna-lang/herdr-agent-usage/internal/provider"
 )
 
+// ProviderID is the canonical Cursor family id within this adapter.
+const ProviderID = "cursor"
+
 // Provider is the Cursor UsageProvider.
 var Provider = provider.FuncProvider{
-	ID:   "cursor",
+	ID:   ProviderID,
 	Func: resolveCursorUsage,
 }
 

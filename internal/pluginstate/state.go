@@ -2,6 +2,8 @@
 package pluginstate
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,20 +53,21 @@ func GlobalDir(home string) string {
 	return filepath.Join(home, ".claude", legacyDirName)
 }
 
-// ProfileDir returns one provider profile's state directory.
-func ProfileDir(familyID, profileID, legacyDir string) string {
+// FamilyDir returns one provider family's state directory. Provider adapters
+// supply both their canonical family id and historical directory.
+func FamilyDir(familyID, legacyDir string) string {
 	if root := Root(); root != "" {
-		return filepath.Join(root, familyID, profileID)
+		return filepath.Join(root, familyID)
 	}
 	return legacyDir
 }
 
-// CursorDir returns the Cursor-specific state directory.
-func CursorDir(home string) string {
-	if root := Root(); root != "" {
-		return filepath.Join(root, "cursor")
+// ProfileDir returns one provider profile's state directory.
+func ProfileDir(familyID, profileID, legacyDir string) string {
+	if Root() != "" {
+		return filepath.Join(FamilyDir(familyID, legacyDir), profileID)
 	}
-	return filepath.Join(home, ".cursor", legacyDirName)
+	return legacyDir
 }
 
 // UpdateCheckDir keeps the historical config-directory location unless a
@@ -105,43 +108,97 @@ func FileMode(path string, legacyMode os.FileMode) os.FileMode {
 	return legacyMode
 }
 
-// EnsureDir creates a state directory with the mode required for its path.
+// EnsureDir creates state directories without changing permissions on paths
+// that already existed. Configured-root symlinks are rejected so a child can
+// never escape the state boundary.
 func EnsureDir(path string) error {
-	mode := DirMode(path)
-	if err := os.MkdirAll(path, mode); err != nil {
+	if !SecurePath(path) {
+		return os.MkdirAll(path, DirMode(path))
+	}
+	root := Root()
+	if info, err := os.Lstat(root); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return &os.PathError{Op: "mkdir", Path: root, Err: os.ErrInvalid}
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return err
+		}
+	} else {
 		return err
 	}
-	if root := Root(); root != "" && SecurePath(path) {
-		// MkdirAll does not tighten already-existing ancestors. Walk back to the
-		// configured root so a pre-created 0755 root cannot expose child names.
-		for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-			if err := os.Chmod(current, mode); err != nil {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		switch {
+		case statErr == nil && info.Mode()&os.ModeSymlink != 0:
+			return &os.PathError{Op: "mkdir", Path: current, Err: os.ErrInvalid}
+		case statErr == nil && !info.IsDir():
+			return &os.PathError{Op: "mkdir", Path: current, Err: os.ErrInvalid}
+		case statErr == nil:
+			continue
+		case os.IsNotExist(statErr):
+			if err := os.Mkdir(current, 0o700); err != nil && !os.IsExist(err) {
 				return err
 			}
-			if current == root {
-				break
-			}
+		default:
+			return statErr
 		}
 	}
 	return nil
 }
 
+func createTempFile(dir string, mode os.FileMode) (*os.File, error) {
+	for range 100 {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, err
+		}
+		name := filepath.Join(dir, ".usagebar-"+hex.EncodeToString(suffix[:])+".tmp")
+		file, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+		if os.IsExist(err) {
+			continue
+		}
+		return file, err
+	}
+	return nil, os.ErrExist
+}
+
 // AtomicWrite writes data through a temporary file in the destination
-// directory and renames it into place.
+// directory and renames it into place. New legacy files respect the process
+// umask; replacements retain the destination mode; configured state is 0600.
 func AtomicWrite(path string, data []byte, legacyMode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := EnsureDir(dir); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(dir, ".usagebar-*.tmp")
+	mode := FileMode(path, legacyMode)
+	preserveMode := SecurePath(path)
+	if info, err := os.Stat(path); err == nil {
+		if !SecurePath(path) {
+			mode = info.Mode().Perm()
+		}
+		preserveMode = true
+	}
+	temp, err := createTempFile(dir, mode)
 	if err != nil {
 		return err
 	}
 	tempName := temp.Name()
 	defer func() { _ = os.Remove(tempName) }()
-	if err := temp.Chmod(FileMode(path, legacyMode)); err != nil {
-		_ = temp.Close()
-		return err
+	if preserveMode {
+		if err := temp.Chmod(mode); err != nil {
+			_ = temp.Close()
+			return err
+		}
 	}
 	if _, err := temp.Write(data); err != nil {
 		_ = temp.Close()

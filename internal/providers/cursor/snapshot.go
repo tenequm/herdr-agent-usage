@@ -48,38 +48,11 @@ func snapshotPath(sessionsDir, sessionID string) string {
 // whatever it is given, and an invalid snapshot written here would replace a
 // valid one. Validation lives in the statusLine adapter, before this point.
 func WriteSnapshot(sessionsDir string, snap Snapshot) error {
-	if err := pluginstate.EnsureDir(sessionsDir); err != nil {
-		return err
-	}
 	encoded, err := json.Marshal(snap)
 	if err != nil {
 		return err
 	}
-
-	// Same directory as the destination so the rename cannot cross filesystems.
-	temp, err := os.CreateTemp(sessionsDir, ".snapshot-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	defer func() {
-		// No-op once the rename succeeded; removes the temp file on any
-		// failure path so a crash mid-write leaves no debris behind.
-		_ = os.Remove(tempName)
-	}()
-	if err := temp.Chmod(pluginstate.FileMode(snapshotPath(sessionsDir, snap.SessionID), 0o600)); err != nil {
-		_ = temp.Close()
-		return err
-	}
-
-	if _, err := temp.Write(encoded); err != nil {
-		_ = temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempName, snapshotPath(sessionsDir, snap.SessionID))
+	return pluginstate.AtomicWrite(snapshotPath(sessionsDir, snap.SessionID), encoded, 0o600)
 }
 
 // ReadSnapshot loads one session's snapshot. A missing or unreadable file and

@@ -3,6 +3,7 @@ package pluginstate
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -53,7 +54,69 @@ func TestAbsentRootPreservesLegacyPaths(t *testing.T) {
 	if got := ProfileDir("claude", "work", "/legacy/profile"); got != "/legacy/profile" {
 		t.Fatalf("profile legacy dir = %q", got)
 	}
-	if got := CursorDir(home); got != filepath.Join(home, ".cursor", legacyDirName) {
+	legacyCursor := filepath.Join(home, ".cursor", legacyDirName)
+	if got := FamilyDir("cursor", legacyCursor); got != legacyCursor {
 		t.Fatalf("cursor legacy dir = %q", got)
+	}
+}
+
+func TestAtomicWriteLegacyRespectsUmaskAndExistingMode(t *testing.T) {
+	restore := Configure("")
+	defer restore()
+	dir := t.TempDir()
+	oldUmask := syscall.Umask(0o077)
+	defer syscall.Umask(oldUmask)
+
+	path := filepath.Join(dir, "new.json")
+	if err := AtomicWrite(path, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("new mode = %v, %v", info, err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := AtomicWrite(path, []byte("replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("replacement mode = %v, %v", info, err)
+	}
+}
+
+func TestEnsureDirLeavesExistingModesAndRejectsSymlinkChild(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "shared")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := Configure(root)
+	defer restore()
+	existing := filepath.Join(root, "existing")
+	if err := os.Mkdir(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	created := filepath.Join(existing, "created")
+	if err := EnsureDir(created); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{root, existing} {
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o755 {
+			t.Fatalf("existing mode %s = %v, %v", path, info, err)
+		}
+	}
+	if info, err := os.Stat(created); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("created mode = %v, %v", info, err)
+	}
+	target := filepath.Join(base, "outside")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDir(filepath.Join(root, "link", "escape")); err == nil {
+		t.Fatal("symlinked state child was followed")
 	}
 }

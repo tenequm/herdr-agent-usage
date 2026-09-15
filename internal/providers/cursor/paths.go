@@ -24,8 +24,6 @@ import (
 	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
-// stateDirName is the plugin-owned subdirectory inside the agent's config dir,
-// matching the convention used for every other agent's derived state.
 // defaultConfigDirName is Cursor's default config directory under the home
 // directory. Used only to anchor plugin state, never to locate Cursor's config.
 const defaultConfigDirName = ".cursor"
@@ -44,7 +42,8 @@ func StateDir() string {
 	if err != nil {
 		return ""
 	}
-	return pluginstate.CursorDir(home)
+	legacy := filepath.Join(home, defaultConfigDirName, pluginstate.LegacyDirName())
+	return pluginstate.FamilyDir(ProviderID, legacy)
 }
 
 // SessionsDir returns the directory holding per-session snapshots.
