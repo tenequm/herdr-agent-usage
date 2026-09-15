@@ -143,9 +143,16 @@ func BuildOpenAgentPanes(panes []RawPaneListEntry, tabLabelsByTabID map[string]s
 
 // GetPaneInfo fetches pane get JSON for paneId.
 func GetPaneInfo(paneID string) PaneInfo {
+	pane, _ := GetPaneInfoOK(paneID)
+	return pane
+}
+
+// GetPaneInfoOK is GetPaneInfo plus whether the pane query and response
+// succeeded, so callers can distinguish unreadable metadata from no tokens.
+func GetPaneInfoOK(paneID string) (PaneInfo, bool) {
 	stdout, ok := spawnHerdr("pane", "get", paneID)
 	if !ok || stdout == "" {
-		return PaneInfo{}
+		return PaneInfo{}, false
 	}
 	var parsed struct {
 		Result *struct {
@@ -167,7 +174,7 @@ func GetPaneInfo(paneID string) PaneInfo {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil || parsed.Result == nil || parsed.Result.Pane == nil {
-		return PaneInfo{}
+		return PaneInfo{}, false
 	}
 	p := parsed.Result.Pane
 	var session *provider.AgentSession
@@ -191,7 +198,7 @@ func GetPaneInfo(paneID string) PaneInfo {
 		TabID:         p.TabID,
 		WorkspaceID:   p.WorkspaceID,
 		Tokens:        p.Tokens,
-	}
+	}, true
 }
 
 // TabInfo is a tab's rename label and its auto-assigned number. Herdr

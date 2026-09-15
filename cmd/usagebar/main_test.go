@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -71,12 +72,83 @@ func TestPublishPanelSidebarDisabledWritesNothing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[ui]\nsidebar = false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
-	call := func() { calls++ }
-	publishPanelSidebarWith(map[string]string{"HERDR_PLUGIN_CONFIG_DIR": configDir}, call, call, call)
-	if calls != 0 {
-		t.Fatalf("disabled pane publishing made %d calls", calls)
+	for _, command := range []string{"limits", "panel"} {
+		t.Run(command, func(t *testing.T) {
+			calls := 0
+			call := func() { calls++ }
+			publishPanelSidebarWith(map[string]string{"HERDR_PLUGIN_CONFIG_DIR": configDir}, call, call, call)
+			if calls != 0 {
+				t.Fatalf("disabled %s publishing made %d calls", command, calls)
+			}
+		})
 	}
+}
+
+func TestDisabledPanelCommandsDoNotClearMetadata(t *testing.T) {
+	for _, command := range []string{"limits", "panel"} {
+		t.Run(command, func(t *testing.T) {
+			root := t.TempDir()
+			configDir := filepath.Join(root, "config")
+			stateDir := filepath.Join(root, "state")
+			if err := os.MkdirAll(configDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			config := "[ui]\nsidebar = false\n[providers]\nenabled = []\n[state]\ndir = \"" + stateDir + "\"\n"
+			if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			callLog := filepath.Join(root, "herdr-calls")
+			herdr := filepath.Join(root, "fake-herdr")
+			script := `#!/bin/sh
+printf "%s\n" "$*" >> "$HERDR_CALL_LOG"
+if [ "$1" = pane ] && [ "$2" = list ]; then
+  printf "%s\n" "{\"result\":{\"panes\":[{\"pane_id\":\"p1\",\"agent\":\"claude\"}]}}"
+else
+  printf "%s\n" "{\"result\":{}}"
+fi
+`
+			if err := os.WriteFile(herdr, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(exe, "-test.run=^TestUsagebarMainHelper$")
+			cmd.Env = []string{
+				"HOME=" + root,
+				"XDG_CONFIG_HOME=" + filepath.Join(root, ".config"),
+				"XDG_STATE_HOME=" + filepath.Join(root, ".local", "state"),
+				"HERDR_PLUGIN_CONFIG_DIR=" + configDir,
+				"HERDR_BIN_PATH=" + herdr,
+				"HERDR_CALL_LOG=" + callLog,
+				"USAGEBAR_MAIN_HELPER=" + command,
+			}
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("%s helper: %v\n%s", command, err, stderr.String())
+			}
+			raw, err := os.ReadFile(callLog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(raw), "report-metadata") {
+				t.Fatalf("disabled %s issued metadata writes:\n%s", command, raw)
+			}
+		})
+	}
+}
+
+func TestUsagebarMainHelper(t *testing.T) {
+	command := os.Getenv("USAGEBAR_MAIN_HELPER")
+	if command == "" {
+		return
+	}
+	os.Args = []string{"usagebar", command, "--once"}
+	main()
 }
 
 func TestSidebarCommandGates(t *testing.T) {
@@ -89,7 +161,6 @@ func TestSidebarCommandGates(t *testing.T) {
 				startup:        func() { calls++ },
 				startIdleWatch: func() { calls++ },
 				watch:          func() { calls++ },
-				clearCurrent:   func() { clears++ },
 				clearAll:       func() { clears++ },
 			}
 			if !dispatchSidebarCommand(command, nil, setup.PluginConfig{Sidebar: false}, nil, actions) {
@@ -99,7 +170,7 @@ func TestSidebarCommandGates(t *testing.T) {
 				t.Fatalf("disabled %s made %d publishing calls", command, calls)
 			}
 			wantClears := 0
-			if command == "status" || command == "update" || command == "startup" {
+			if command == "startup" {
 				wantClears = 1
 			}
 			if clears != wantClears {

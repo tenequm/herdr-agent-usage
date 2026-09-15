@@ -39,9 +39,6 @@ func main() {
 	args := os.Args[2:]
 	env := environment()
 	config, _ := configureRuntime(env)
-	if !config.Sidebar && (cmd == "limits" || cmd == "panel") {
-		update.ClearOpenAgentPaneMetadata()
-	}
 	if dispatchSidebarCommand(cmd, args, config, env, sidebarCommandActions{
 		update:         update.RunUpdate,
 		startup:        update.RepublishOpenAgentPanes,
@@ -49,8 +46,7 @@ func main() {
 		watch: func() {
 			update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil)
 		},
-		clearCurrent: func() { update.ClearPaneMetadata(env["HERDR_PANE_ID"]) },
-		clearAll:     update.ClearOpenAgentPaneMetadata,
+		clearAll: update.ClearOpenAgentPaneMetadata,
 	}) {
 		return
 	}
@@ -102,7 +98,6 @@ type sidebarCommandActions struct {
 	startup        func()
 	startIdleWatch func()
 	watch          func()
-	clearCurrent   func()
 	clearAll       func()
 }
 
@@ -116,9 +111,6 @@ func dispatchSidebarCommand(
 	switch command {
 	case "status", "update":
 		if !config.Sidebar {
-			if actions.clearCurrent != nil {
-				actions.clearCurrent()
-			}
 			return true
 		}
 		// Force when invoked as a plugin action (refresh).

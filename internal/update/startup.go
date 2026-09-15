@@ -30,18 +30,35 @@ func clearPaneMetadataWith(writer metadataTokenWriter, paneID string) {
 }
 
 // ClearOpenAgentPaneMetadata removes stale plugin tokens from every open pane.
+// It reads each pane once and avoids issuing clears for tokens that are absent.
+// An unreadable pane falls back to clearing every owned token because its
+// server-side state is unknown.
 func ClearOpenAgentPaneMetadata() {
-	clearOpenAgentPaneMetadataWith(herdrcli.ListOpenAgentPanesOK, ClearPaneMetadata)
+	clearOpenAgentPaneMetadataWith(herdrcli.ListOpenAgentPanesOK, herdrcli.GetPaneInfoOK, herdrMetadataTokenWriter)
 }
 
-func clearOpenAgentPaneMetadataWith(list func() ([]herdrcli.OpenAgentPane, bool), clear func(string)) {
+func clearOpenAgentPaneMetadataWith(
+	list func() ([]herdrcli.OpenAgentPane, bool),
+	get func(string) (herdrcli.PaneInfo, bool),
+	writer metadataTokenWriter,
+) {
 	panes, ok := list()
 	if !ok {
 		return
 	}
 	for _, pane := range panes {
-		if pane.PaneID != "" {
-			clear(pane.PaneID)
+		if pane.PaneID == "" {
+			continue
+		}
+		current, ok := get(pane.PaneID)
+		if !ok {
+			clearPaneMetadataWith(writer, pane.PaneID)
+			continue
+		}
+		for _, name := range ownedMetadataTokenNames {
+			if _, present := current.Tokens[name]; present {
+				writer.clear(pane.PaneID, herdrcli.Source, name)
+			}
 		}
 	}
 }
