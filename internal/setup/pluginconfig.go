@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
@@ -43,6 +44,12 @@ type PluginConfig struct {
 	// AutoCheck controls quiet event-triggered update checks. Explicit checks
 	// remain available regardless of this value.
 	AutoCheck bool
+	// StateDir is the expanded, absolute plugin-owned runtime state root.
+	StateDir string
+	// InvalidStateDir is retained only for setup diagnostics.
+	InvalidStateDir string
+	// InvalidProfileIDs are rejected path-unsafe ids retained for setup warnings.
+	InvalidProfileIDs []string
 	// EnabledProviderFamilies bounds all quota collection when non-empty.
 	// Values are canonical provider family ids from providers.Registrations.
 	EnabledProviderFamilies []string
@@ -85,6 +92,9 @@ type pluginConfigWire struct {
 	Update struct {
 		AutoCheck *bool `toml:"auto_check"`
 	} `toml:"update"`
+	State struct {
+		Dir string `toml:"dir"`
+	} `toml:"state"`
 	Claude struct {
 		Profiles []profileWire `toml:"profiles"`
 	} `toml:"claude"`
@@ -182,6 +192,10 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		"[update]",
 		"# Set false to disable event-triggered network checks; the action still works.",
 		"# auto_check = false",
+		"",
+		"[state]",
+		"# Put every runtime file under one private plugin-owned root.",
+		"# dir = \"~/.local/state/herdr-agent-usage\"",
 		"",
 		"# Multi-account Claude: uncomment and add one block per account.",
 
@@ -284,6 +298,15 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	if wire.Update.AutoCheck != nil {
 		cfg.AutoCheck = *wire.Update.AutoCheck
 	}
+	home, _ := os.UserHomeDir()
+	if wire.State.Dir != "" {
+		stateDir := normalizeConfigPath(wire.State.Dir, home)
+		if filepath.IsAbs(stateDir) {
+			cfg.StateDir = stateDir
+		} else {
+			cfg.InvalidStateDir = wire.State.Dir
+		}
+	}
 
 	quotaFamilies := make(map[string]bool)
 	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
@@ -304,6 +327,10 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 
 	for _, p := range wire.Claude.Profiles {
+		if !validProfileID(p.ID) {
+			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "claude:"+p.ID)
+			continue
+		}
 		cfg.ClaudeProfiles = append(cfg.ClaudeProfiles, claude.ProfileSpec{
 			ID:        p.ID,
 			Label:     p.Label,
@@ -312,6 +339,10 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		})
 	}
 	for _, p := range wire.Codex.Profiles {
+		if !validProfileID(p.ID) {
+			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "codex:"+p.ID)
+			continue
+		}
 		cfg.CodexProfiles = append(cfg.CodexProfiles, codex.ProfileSpec{
 			ID:        p.ID,
 			Label:     p.Label,
@@ -319,12 +350,39 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		})
 	}
 	for _, p := range wire.Grok.Profiles {
+		if !validProfileID(p.ID) {
+			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "grok:"+p.ID)
+			continue
+		}
 		cfg.GrokProfiles = append(cfg.GrokProfiles, grok.ProfileSpec{ID: p.ID, Label: p.Label, GrokHome: p.GrokHome})
 	}
 	for _, p := range wire.OpenCode.Profiles {
+		if !validProfileID(p.ID) {
+			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "opencode:"+p.ID)
+			continue
+		}
 		cfg.OpenCodeProfiles = append(cfg.OpenCodeProfiles, opencode.ProfileSpec{ID: p.ID, Label: p.Label, DataDir: p.DataDir})
 	}
 	return cfg
+}
+
+func normalizeConfigPath(path, home string) string {
+	path = strings.TrimSpace(path)
+	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+	}
+	return filepath.Clean(path)
+}
+
+func validProfileID(id string) bool {
+	return id != "" && !strings.HasPrefix(id, ".") && !strings.Contains(id, "..") &&
+		!strings.ContainsAny(id, `/\\`)
+}
+
+// ConfigurePluginState applies cfg's resolved state root for all downstream
+// packages without making those leaf packages depend on setup.
+func ConfigurePluginState(cfg PluginConfig) func() {
+	return pluginstate.Configure(cfg.StateDir)
 }
 
 // SeedPluginConfigIfMissing writes default config.toml when missing; returns true if created.

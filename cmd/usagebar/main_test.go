@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/senna-lang/herdr-agent-usage/internal/limits"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/ratelimit"
 	"github.com/senna-lang/herdr-agent-usage/internal/setup"
@@ -115,6 +116,70 @@ func TestRunUpdateCheck_ExplicitStillRunsWhenAutoDisabled(t *testing.T) {
 	)
 	if calls != 1 {
 		t.Fatalf("explicit check calls=%d, want 1", calls)
+	}
+}
+
+func TestStatusLineProfilesUseConfiguredStateRoot(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".config", "plugin")
+	stateRoot := filepath.Join(home, "plugin-state")
+	profileA := filepath.Join(home, ".claude-work")
+	profileB := filepath.Join(home, ".claude-personal")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := "[notify]\nenabled = false\n[state]\ndir = \"" + stateRoot + "\"\n" +
+		"[providers]\nenabled = [\"claude\"]\n" +
+		"[[claude.profiles]]\nid = \"work\"\nconfig_dir = \"" + profileA + "\"\n" +
+		"[[claude.profiles]]\nid = \"personal\"\nconfig_dir = \"" + profileB + "\"\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"HOME": home, "XDG_CONFIG_HOME": filepath.Join(home, ".config"),
+		"XDG_STATE_HOME":          filepath.Join(home, ".local", "state"),
+		"HERDR_PLUGIN_CONFIG_DIR": configDir, "HERDR_ENV": "", "HERDR_SOCKET_PATH": "",
+		"HERDR_BIN_PATH": "", "HERDR_PANE_ID": "", "HERDR_TAB_ID": "", "HERDR_WORKSPACE_ID": "",
+		"USAGEBAR_STATE_DIR": "", "USAGEBAR_CLAUDE_LIMITS_PATH": "",
+	} {
+		t.Setenv(key, value)
+	}
+	cfg := setup.LoadPluginConfig(configDir)
+	restore := setup.ConfigurePluginState(cfg)
+	defer restore()
+
+	payloadA := `{"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1800000000}}}`
+	payloadB := `{"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1800000000}}}`
+	t.Setenv("CLAUDE_CONFIG_DIR", profileA)
+	runStatusLineInput(payloadA, 1_700_000_000_000)
+	t.Setenv("CLAUDE_CONFIG_DIR", profileB)
+	runStatusLineInput(payloadB, 1_700_000_001_000)
+
+	opts := limits.DefaultCollectOptions()
+	if len(opts.Claude) != 2 {
+		t.Fatalf("Claude collectors = %d", len(opts.Claude))
+	}
+	for i, wantUsed := range []float64{10, 20} {
+		got := opts.Claude[i].Collector(nil, 1_700_000_002_000)
+		if got.Primary == nil || got.Primary.UsedPercentage != wantUsed {
+			t.Fatalf("profile %d limits = %+v", i, got.Primary)
+		}
+		cache := filepath.Join(stateRoot, "claude", opts.Claude[i].ID, "claude-limits-latest.json")
+		info, err := os.Stat(cache)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("cache mode = %o", info.Mode().Perm())
+		}
+		if dirInfo, err := os.Stat(filepath.Dir(cache)); err != nil || dirInfo.Mode().Perm() != 0o700 {
+			t.Fatalf("profile dir mode = %v, %v", dirInfo, err)
+		}
+	}
+	for _, forbidden := range []string{filepath.Join(home, ".claude"), profileA, profileB, filepath.Join(home, ".cursor")} {
+		if _, err := os.Stat(forbidden); !os.IsNotExist(err) {
+			t.Fatalf("created state under harness path %s", forbidden)
+		}
 	}
 }
 

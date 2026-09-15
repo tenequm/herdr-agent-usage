@@ -10,6 +10,8 @@ package setup
 import (
 	"os"
 	"strings"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 // SetupOptions configures runSetup.
@@ -41,6 +43,9 @@ func RunSetup(options SetupOptions) SetupReport {
 	seeded := SeedPluginConfigIfMissing(pluginDir)
 	pluginPath := PluginConfigPath(pluginDir)
 	pluginCfg := LoadPluginConfig(pluginDir)
+	restoreState := ConfigurePluginState(pluginCfg)
+	defer restoreState()
+	home, _ := os.UserHomeDir()
 	if seeded {
 		lines = append(lines, "✓ seeded plugin config: "+pluginPath)
 	} else {
@@ -63,7 +68,13 @@ func RunSetup(options SetupOptions) SetupReport {
 	for _, id := range pluginCfg.UnknownProviderFamilies {
 		lines = append(lines, "  ! unknown provider family ignored: "+id)
 	}
-	home, _ := os.UserHomeDir()
+	lines = append(lines, "  state.dir="+pluginstate.GlobalDir(home))
+	if pluginCfg.InvalidStateDir != "" {
+		lines = append(lines, "  ! state.dir ignored (must resolve to an absolute path): "+pluginCfg.InvalidStateDir)
+	}
+	for _, id := range pluginCfg.InvalidProfileIDs {
+		lines = append(lines, "  ! unsafe profile id ignored: "+id)
+	}
 	lines = append(lines, claudeProfileReportLines(
 		pluginCfg.ClaudeProfiles,
 		ResolveClaudeProfiles(env),

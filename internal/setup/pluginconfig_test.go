@@ -66,6 +66,36 @@ func TestParsePluginConfigTOML_AutoCheck(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_StateDirAndUnsafeProfileIDs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := ParsePluginConfigTOML(`
+[state]
+dir = "~/.local/state/usagebar"
+
+[[claude.profiles]]
+id = "../escape"
+config_dir = "/profiles/escape"
+
+[[claude.profiles]]
+id = ".hidden"
+config_dir = "/profiles/hidden"
+
+[[claude.profiles]]
+id = "safe"
+config_dir = "/profiles/safe"
+`)
+	if cfg.StateDir != filepath.Join(home, ".local", "state", "usagebar") {
+		t.Fatalf("state dir = %q", cfg.StateDir)
+	}
+	if len(cfg.ClaudeProfiles) != 1 || cfg.ClaudeProfiles[0].ID != "safe" {
+		t.Fatalf("profiles = %+v", cfg.ClaudeProfiles)
+	}
+	if !reflect.DeepEqual(cfg.InvalidProfileIDs, []string{"claude:../escape", "claude:.hidden"}) {
+		t.Fatalf("invalid ids = %v", cfg.InvalidProfileIDs)
+	}
+}
+
 func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
 	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
 	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {

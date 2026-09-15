@@ -7,7 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
+
+func TestStateDir_UsagebarOverrideWinsConfiguredRoot(t *testing.T) {
+	restore := pluginstate.Configure(filepath.Join(t.TempDir(), "configured"))
+	defer restore()
+	t.Setenv("USAGEBAR_STATE_DIR", "/explicit/state")
+	if got := StateDir(); got != "/explicit/state" {
+		t.Fatalf("StateDir() = %q", got)
+	}
+}
 
 func TestStateDir_UsagebarOverrideWins(t *testing.T) {
 	t.Setenv("USAGEBAR_STATE_DIR", "/explicit/state")
@@ -26,7 +37,7 @@ func TestStateDir_DoesNotFollowCursorConfigDir(t *testing.T) {
 	if err != nil {
 		t.Skip("no home directory")
 	}
-	if got := StateDir(); got != filepath.Join(home, defaultConfigDirName, stateDirName) {
+	if got := StateDir(); got != filepath.Join(home, defaultConfigDirName, "herdr-usagebar") {
 		t.Fatalf("StateDir() = %q, want the home-anchored default", got)
 	}
 }
@@ -38,7 +49,7 @@ func TestStateDir_DefaultsUnderHome(t *testing.T) {
 	if err != nil {
 		t.Skip("no home directory")
 	}
-	if got := StateDir(); got != filepath.Join(home, defaultConfigDirName, stateDirName) {
+	if got := StateDir(); got != filepath.Join(home, defaultConfigDirName, "herdr-usagebar") {
 		t.Fatalf("StateDir() = %q", got)
 	}
 }

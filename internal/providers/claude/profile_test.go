@@ -6,7 +6,22 @@ package claude
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
+
+func TestResolveProfiles_EnvOverridesConfiguredStateRoot(t *testing.T) {
+	restore := pluginstate.Configure(filepath.Join(t.TempDir(), "configured"))
+	defer restore()
+	home := t.TempDir()
+	p := ResolveProfiles(nil, map[string]string{
+		"USAGEBAR_STATE_DIR":          "/override/state",
+		"USAGEBAR_CLAUDE_LIMITS_PATH": "/override/limits.json",
+	}, home)[0]
+	if p.StateDir != "/override/state" || p.LimitsCache != "/override/limits.json" {
+		t.Fatalf("env overrides lost: %+v", p)
+	}
+}
 
 func TestResolveProfiles_DefaultWhenNoSpecs(t *testing.T) {
 	home := "/home/u"

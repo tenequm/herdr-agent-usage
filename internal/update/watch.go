@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/limits"
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 const (
@@ -41,8 +42,8 @@ func WatchAlreadyRunning(now time.Time) bool {
 
 func tryAcquireWatchLock(now time.Time) (*os.File, bool) {
 	path := watchLockPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	_ = pluginstate.EnsureDir(filepath.Dir(path))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
 	if err == nil {
 		touchWatchLock(now)
 		return f, true
@@ -55,7 +56,7 @@ func tryAcquireWatchLock(now time.Time) (*os.File, bool) {
 		return nil, false
 	}
 	_ = os.Remove(path)
-	f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
 	if err != nil {
 		return nil, false
 	}

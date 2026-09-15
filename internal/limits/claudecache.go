@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 // RateLimitsInput is the statusLine rate_limits shape.
@@ -51,7 +53,7 @@ func ResolveClaudeLimitsCachePath() string {
 		return v
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", "herdr-usagebar", "claude-limits-latest.json")
+	return filepath.Join(pluginstate.ProfileDir("claude", "claude", pluginstate.GlobalDir(home)), "claude-limits-latest.json")
 }
 
 // WriteClaudeLimitsCache writes statusLine RateLimitsInput to the cache file.
@@ -90,14 +92,11 @@ func WriteClaudeLimitsCache(rateLimits RateLimitsInput, nowMs int64, path string
 	if rateLimits.PromptCachePresent {
 		payload.PromptCacheExpiresAt = rateLimits.PromptCacheExpiresAt
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	return pluginstate.AtomicWrite(path, append(b, '\n'))
 }
 
 // WriteClaudeLimitsCacheGuarded writes the cache when at least one window or a

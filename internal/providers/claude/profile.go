@@ -14,6 +14,8 @@ package claude
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 // DefaultProfileID is the provider id used for the single implicit profile.
@@ -48,14 +50,14 @@ type ClaudeProfile struct {
 	Implicit bool
 }
 
-// derivedLimitsCache is the per-config-dir limits cache path.
-func derivedLimitsCache(configDir string) string {
-	return filepath.Join(configDir, "herdr-usagebar", "claude-limits-latest.json")
-}
-
 // derivedStateDir is the per-config-dir notify state dir.
 func derivedStateDir(configDir string) string {
-	return filepath.Join(configDir, "herdr-usagebar")
+	return filepath.Join(configDir, pluginstate.LegacyDirName())
+}
+
+func profileStateDir(profileID, configDir string) string {
+	legacy := derivedStateDir(configDir)
+	return pluginstate.ProfileDir(DefaultProfileID, profileID, legacy)
 }
 
 // derivedProjectsRoot is the per-config-dir transcript projects root.
@@ -115,13 +117,20 @@ func normalizePath(path, home string) string {
 // rather than absorb any CLAUDE_CONFIG_DIR into this profile's cache.
 func synthesizeDefaultProfile(env map[string]string, home string, implicit bool) ClaudeProfile {
 	configDir := filepath.Join(home, ".claude")
+	profileDir := profileStateDir(DefaultProfileID, configDir)
+	stateDir := profileDir
+	if pluginstate.Root() != "" {
+		// Preserve the historical global default-profile notify state while
+		// keeping the statusLine limits cache in its family/profile directory.
+		stateDir = pluginstate.GlobalDir(home)
+	}
 	return ClaudeProfile{
 		ID:           DefaultProfileID,
 		Label:        DefaultProfileLabel,
 		ConfigDir:    configDir,
 		JSONPath:     firstNonEmpty(env["CLAUDE_CONFIG_JSON"], filepath.Join(home, ".claude.json")),
-		LimitsCache:  firstNonEmpty(env["USAGEBAR_CLAUDE_LIMITS_PATH"], derivedLimitsCache(configDir)),
-		StateDir:     firstNonEmpty(env["USAGEBAR_STATE_DIR"], derivedStateDir(configDir)),
+		LimitsCache:  firstNonEmpty(env["USAGEBAR_CLAUDE_LIMITS_PATH"], filepath.Join(profileDir, "claude-limits-latest.json")),
+		StateDir:     firstNonEmpty(env["USAGEBAR_STATE_DIR"], stateDir),
 		ProjectsRoot: firstNonEmpty(env["CLAUDE_PROJECTS_ROOT"], derivedProjectsRoot(configDir)),
 		Implicit:     implicit,
 	}
@@ -155,13 +164,14 @@ func resolveSpec(spec ProfileSpec, home string) ClaudeProfile {
 	label := firstNonEmpty(spec.Label, spec.ID)
 	configDir := normalizePath(spec.ConfigDir, home)
 	jsonPath := firstNonEmpty(normalizePath(spec.JSONPath, home), defaultJSONPathFor(configDir, home))
+	stateDir := profileStateDir(spec.ID, configDir)
 	return ClaudeProfile{
 		ID:           spec.ID,
 		Label:        label,
 		ConfigDir:    configDir,
 		JSONPath:     jsonPath,
-		LimitsCache:  derivedLimitsCache(configDir),
-		StateDir:     derivedStateDir(configDir),
+		LimitsCache:  filepath.Join(stateDir, "claude-limits-latest.json"),
+		StateDir:     stateDir,
 		ProjectsRoot: derivedProjectsRoot(configDir),
 	}
 }

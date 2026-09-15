@@ -15,6 +15,7 @@ import (
 
 	"github.com/senna-lang/herdr-agent-usage/internal/herdrcli"
 	"github.com/senna-lang/herdr-agent-usage/internal/limits"
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/cursor"
 	"github.com/senna-lang/herdr-agent-usage/internal/ratelimit"
@@ -37,6 +38,7 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
+	setup.ConfigurePluginState(config)
 
 	switch cmd {
 	case "version", "--version", "-V":
@@ -125,7 +127,7 @@ func runUpdateCheckWith(args []string, env map[string]string, run func(updateche
 	}
 	result := run(updatecheck.Options{
 		CurrentVersion: currentVersion,
-		StateDir:       setup.ResolvePluginConfigDir(env),
+		StateDir:       pluginstate.UpdateCheckDir(setup.ResolvePluginConfigDir(env)),
 		Force:          hasFlag(args, "--force"),
 		Notify:         updateNotification(env),
 	})
@@ -531,8 +533,10 @@ func runStatusLine() {
 		fmt.Fprintf(os.Stderr, "[usagebar-rate] read stdin: %v\n", err)
 		os.Exit(1)
 	}
-	stdinJSON := string(data)
-	nowMs := time.Now().UnixMilli()
+	runStatusLineInput(string(data), time.Now().UnixMilli())
+}
+
+func runStatusLineInput(stdinJSON string, nowMs int64) {
 
 	// Route this statusLine invocation to the profile matching its own
 	// CLAUDE_CONFIG_DIR. The statusLine runs inside the Claude process, so the

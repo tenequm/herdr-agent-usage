@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 // Snapshot is one statusLine observation of a Cursor session's context.
@@ -46,7 +48,7 @@ func snapshotPath(sessionsDir, sessionID string) string {
 // whatever it is given, and an invalid snapshot written here would replace a
 // valid one. Validation lives in the statusLine adapter, before this point.
 func WriteSnapshot(sessionsDir string, snap Snapshot) error {
-	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+	if err := pluginstate.EnsureDir(sessionsDir); err != nil {
 		return err
 	}
 	encoded, err := json.Marshal(snap)
@@ -65,6 +67,10 @@ func WriteSnapshot(sessionsDir string, snap Snapshot) error {
 		// failure path so a crash mid-write leaves no debris behind.
 		_ = os.Remove(tempName)
 	}()
+	if err := temp.Chmod(pluginstate.FileMode(snapshotPath(sessionsDir, snap.SessionID))); err != nil {
+		_ = temp.Close()
+		return err
+	}
 
 	if _, err := temp.Write(encoded); err != nil {
 		_ = temp.Close()

@@ -20,6 +20,8 @@ package cursor
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
 
 // stateDirName is the plugin-owned subdirectory inside the agent's config dir,
@@ -27,8 +29,6 @@ import (
 // defaultConfigDirName is Cursor's default config directory under the home
 // directory. Used only to anchor plugin state, never to locate Cursor's config.
 const defaultConfigDirName = ".cursor"
-
-const stateDirName = "herdr-usagebar"
 
 // sessionsDirName holds one snapshot per Cursor session id.
 const sessionsDirName = "sessions"
@@ -44,7 +44,7 @@ func StateDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, defaultConfigDirName, stateDirName)
+	return pluginstate.CursorDir(home)
 }
 
 // SessionsDir returns the directory holding per-session snapshots.
