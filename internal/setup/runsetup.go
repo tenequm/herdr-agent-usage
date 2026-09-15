@@ -149,7 +149,7 @@ func RunSetup(options SetupOptions) SetupReport {
 			"",
 		)
 	} else {
-		lines = append(lines, "Sidebar disabled: pane-only mode; use the prefix keybinding for the limits overlay.", "")
+		lines = append(lines, "# Sidebar disabled: pane-only mode; use the prefix keybinding for the limits overlay.", "")
 	}
 	lines = append(lines,
 		"# Toast delivery (required for rate-limit notifications)",

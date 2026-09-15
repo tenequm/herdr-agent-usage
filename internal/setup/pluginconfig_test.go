@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
@@ -342,6 +343,115 @@ func TestParsePluginConfigTOML_TypeMismatchFailsClosed(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_DecodeErrorPreservesUnaffectedDefaults(t *testing.T) {
+	seed := DefaultPluginConfigTOML(DefaultPluginConfig)
+	badNotify := strings.Replace(seed, "enabled = true", `enabled = "no"`, 1)
+	cfg := ParsePluginConfigTOML(badNotify)
+	if cfg.DecodeError == "" {
+		t.Fatal("type mismatch did not report a decode error")
+	}
+	if cfg.ProviderAllowlistConfigured || !cfg.Sidebar {
+		t.Fatalf("unrelated seeded table headers changed defaults: %+v", cfg)
+	}
+	if cfg.NotifyEnabled {
+		t.Fatal("explicit invalid notify.enabled did not fail closed")
+	}
+
+	duplicateUI := ParsePluginConfigTOML(seed + "\n[ui]\nsidebar = false\n")
+	if duplicateUI.DecodeError == "" || duplicateUI.ProviderAllowlistConfigured || duplicateUI.Sidebar {
+		t.Fatalf("duplicate UI recovery = %+v", duplicateUI)
+	}
+}
+
+func TestParsePluginConfigTOML_RecoversSecurityKeysAcrossTOMLForms(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "commented headers",
+			raw:  "[providers] # restrict\nenabled = [\"claude\"]\n[ui] # pane-only\nsidebar = false\n[notify]\nenabled = \"no\"\n",
+		},
+		{
+			name: "spaced headers",
+			raw:  "[ providers ]\nenabled = [\"claude\"]\n[ ui ]\nsidebar = false\n[notify]\nenabled = \"no\"\n",
+		},
+		{
+			name: "dotted keys",
+			raw:  "providers.enabled = [\"claude\"]\nui.sidebar = false\n[notify]\nenabled = \"no\"\n",
+		},
+		{
+			name: "inline tables",
+			raw:  "providers = { enabled = [\"claude\"] }\nui = { sidebar = false }\n[notify]\nenabled = \"no\"\n",
+		},
+		{
+			name: "BOM",
+			raw:  "\ufeff[providers]\nenabled = [\"claude\"]\n[ui]\nsidebar = false\n[notify]\nenabled = \"no\"\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ParsePluginConfigTOML(tt.raw)
+			if cfg.DecodeError == "" {
+				t.Fatal("test config did not exercise recovery")
+			}
+			if !cfg.ProviderAllowlistConfigured || cfg.Sidebar {
+				t.Fatalf("security settings not recovered: %+v", cfg)
+			}
+			if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude"}) {
+				t.Fatalf("enabled providers = %v", cfg.EnabledProviderFamilies)
+			}
+		})
+	}
+}
+
+func TestParsePluginConfigTOML_SyntaxErrorFailsClosedAcrossTOMLForms(t *testing.T) {
+	forms := map[string]string{
+		"commented headers": "[providers] # restrict\nenabled = [\"claude\"]\n[ui] # pane-only\nsidebar = false\n",
+		"spaced headers":    "[ providers ]\nenabled = [\"claude\"]\n[ ui ]\nsidebar = false\n",
+		"dotted keys":       "providers.enabled = [\"claude\"]\nui.sidebar = false\n",
+		"inline tables":     "providers = { enabled = [\"claude\"] }\nui = { sidebar = false }\n",
+		"BOM":               "\ufeff[providers]\nenabled = [\"claude\"]\n[ui]\nsidebar = false\n",
+	}
+	for name, raw := range forms {
+		t.Run(name, func(t *testing.T) {
+			cfg := ParsePluginConfigTOML(raw + "[unterminated\n")
+			if cfg.DecodeError == "" || !cfg.ProviderAllowlistConfigured || cfg.Sidebar {
+				t.Fatalf("syntax-error recovery did not fail closed: %+v", cfg)
+			}
+			if len(cfg.EnabledProviderFamilies) != 0 {
+				t.Fatalf("unreadable allowlist retained values: %v", cfg.EnabledProviderFamilies)
+			}
+		})
+	}
+}
+
+func TestParsePluginConfigTOML_BadProfilePreservesOtherTables(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	raw := "[notify]\nenabled = false\n[ui]\nsidebar = false\n" +
+		"[providers]\nenabled = [\"claude\"]\n[update]\nauto_check = false\n" +
+		"[state]\ndir = \"~/usagebar-state\"\n" +
+		"[[claude.profiles]]\nid = \"base\"\nconfig_dir = \"~/.claude-work\"\n" +
+		"[[codex.profiles]]\nid = 1\ncodex_home = \"~/.codex-work\"\n"
+	cfg := ParsePluginConfigTOML(raw)
+	if cfg.DecodeError == "" {
+		t.Fatal("bad Codex profile did not report a decode error")
+	}
+	if cfg.StateDir != filepath.Join(home, "usagebar-state") || cfg.AutoCheck || cfg.NotifyEnabled || cfg.Sidebar {
+		t.Fatalf("unaffected security settings were not preserved: %+v", cfg)
+	}
+	if !cfg.ProviderAllowlistConfigured || !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude"}) {
+		t.Fatalf("provider allowlist = %+v", cfg)
+	}
+	if len(cfg.ClaudeProfiles) != 1 || cfg.ClaudeProfiles[0].ID != "base" {
+		t.Fatalf("Claude profiles = %+v", cfg.ClaudeProfiles)
+	}
+	if len(cfg.CodexProfiles) != 0 {
+		t.Fatalf("invalid Codex table was retained: %+v", cfg.CodexProfiles)
+	}
+}
+
 func TestParsePluginConfigTOML_StateRootAndClaudeIDSafety(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -358,5 +468,25 @@ func TestParsePluginConfigTOML_StateRootAndClaudeIDSafety(t *testing.T) {
 	cfg := ParsePluginConfigTOML(raw)
 	if len(cfg.ClaudeProfiles) != 1 || len(cfg.InvalidProfileIDs) != 1 || len(cfg.CodexProfiles) != 1 {
 		t.Fatalf("profile validation = %+v", cfg)
+	}
+}
+
+func TestParsePluginConfigTOML_RejectsStateRootAliasingHome(t *testing.T) {
+	base := t.TempDir()
+	users := filepath.Join(base, "users")
+	home := filepath.Join(users, "me")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(users, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	t.Setenv("HOME", home)
+
+	root := filepath.Join(alias, "me")
+	cfg := ParsePluginConfigTOML("[state]\ndir = \"" + root + "\"\n")
+	if cfg.StateDir != "" || cfg.InvalidStateDir != root {
+		t.Fatalf("state root alias of HOME accepted: %+v", cfg)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestRunSetup_SeedsAndSnippets(t *testing.T) {
@@ -104,6 +106,41 @@ func TestRunSetup_InvalidProviderAllowlistReportsCollectionDisabled(t *testing.T
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}
+	}
+}
+
+func TestRunSetupPaneOnlyPasteBlockIsValidTOML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	pluginDir := filepath.Join(home, "plugin-config")
+	if err := os.MkdirAll(pluginDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "config.toml"), []byte("[ui]\nsidebar = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := RunSetup(SetupOptions{Env: map[string]string{
+		"HOME":                    home,
+		"XDG_CONFIG_HOME":         filepath.Join(home, ".config"),
+		"XDG_STATE_HOME":          filepath.Join(home, ".local", "state"),
+		"HERDR_PLUGIN_CONFIG_DIR": pluginDir,
+		"HERDR_CONFIG":            filepath.Join(home, "herdr-config.toml"),
+	}})
+	text := strings.Join(report.Lines, "\n")
+	startMarker := "── Paste into ~/.config/herdr/config.toml ──"
+	start := strings.Index(text, startMarker)
+	if start < 0 {
+		t.Fatalf("paste block header missing:\n%s", text)
+	}
+	start += len(startMarker)
+	end := strings.Index(text[start:], "\nThen: herdr server reload-config")
+	if end < 0 {
+		t.Fatalf("paste block footer missing:\n%s", text)
+	}
+	block := text[start : start+end]
+	var parsed map[string]any
+	if _, err := toml.Decode(block, &parsed); err != nil {
+		t.Fatalf("pane-only paste block is invalid TOML: %v\n%s", err, block)
 	}
 }
 

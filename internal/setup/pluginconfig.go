@@ -279,9 +279,74 @@ func validThresholds(in []int) ([]int, bool) {
 	return out, true
 }
 
-// ParsePluginConfigTOML decodes the plugin config, falling back to defaults for
-// missing/invalid fields (malformed TOML yields all defaults).
+type configRecovery struct {
+	NotifyDecoded, UIDecoded, ProvidersDecoded, UpdateDecoded bool
+	NotifyEnabledPresent, UISidebarPresent                    bool
+	ProvidersEnabledPresent, UpdateAutoCheckPresent           bool
+}
+
+func recoverPluginConfigWire(raw string) (pluginConfigWire, configRecovery) {
+	var wire pluginConfigWire
+	var tables map[string]toml.Primitive
+	metadata, err := toml.Decode(raw, &tables)
+	if err != nil {
+		return wire, scanConfigKeyPresence(raw)
+	}
+
+	var decoded pluginConfigWire
+	recovery := configRecovery{
+		NotifyEnabledPresent:    metadata.IsDefined("notify", "enabled"),
+		UISidebarPresent:        metadata.IsDefined("ui", "sidebar"),
+		ProvidersEnabledPresent: metadata.IsDefined("providers", "enabled"),
+		UpdateAutoCheckPresent:  metadata.IsDefined("update", "auto_check"),
+	}
+	if value, ok := tables["notify"]; ok {
+		recovery.NotifyDecoded = metadata.PrimitiveDecode(value, &decoded.Notify) == nil
+		if recovery.NotifyDecoded {
+			wire.Notify = decoded.Notify
+		}
+	}
+	if value, ok := tables["ui"]; ok {
+		recovery.UIDecoded = metadata.PrimitiveDecode(value, &decoded.UI) == nil
+		if recovery.UIDecoded {
+			wire.UI = decoded.UI
+		}
+	}
+	if value, ok := tables["providers"]; ok {
+		recovery.ProvidersDecoded = metadata.PrimitiveDecode(value, &decoded.Providers) == nil
+		if recovery.ProvidersDecoded {
+			wire.Providers = decoded.Providers
+		}
+	}
+	if value, ok := tables["update"]; ok {
+		recovery.UpdateDecoded = metadata.PrimitiveDecode(value, &decoded.Update) == nil
+		if recovery.UpdateDecoded {
+			wire.Update = decoded.Update
+		}
+	}
+	if value, ok := tables["state"]; ok && metadata.PrimitiveDecode(value, &decoded.State) == nil {
+		wire.State = decoded.State
+	}
+	if value, ok := tables["claude"]; ok && metadata.PrimitiveDecode(value, &decoded.Claude) == nil {
+		wire.Claude = decoded.Claude
+	}
+	if value, ok := tables["codex"]; ok && metadata.PrimitiveDecode(value, &decoded.Codex) == nil {
+		wire.Codex = decoded.Codex
+	}
+	if value, ok := tables["grok"]; ok && metadata.PrimitiveDecode(value, &decoded.Grok) == nil {
+		wire.Grok = decoded.Grok
+	}
+	if value, ok := tables["opencode"]; ok && metadata.PrimitiveDecode(value, &decoded.OpenCode) == nil {
+		wire.OpenCode = decoded.OpenCode
+	}
+	return wire, recovery
+}
+
+// ParsePluginConfigTOML decodes the plugin config. A type error recovers each
+// unaffected top-level table independently; explicit security-sensitive keys
+// in an invalid table fail closed.
 func ParsePluginConfigTOML(raw string) PluginConfig {
+	raw = strings.TrimPrefix(raw, "\ufeff")
 	cfg := PluginConfig{
 		NotifyEnabled:       DefaultPluginConfig.NotifyEnabled,
 		RemainingThresholds: append([]int(nil), DefaultPluginConfig.RemainingThresholds...),
@@ -293,18 +358,16 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 
 	var wire pluginConfigWire
+	var recovery configRecovery
 	if _, err := toml.Decode(raw, &wire); err != nil {
 		cfg.DecodeError = err.Error()
-		if hasTOMLTable(raw, "providers") {
-			cfg.ProviderAllowlistConfigured = true
-		}
-		if hasTOMLTable(raw, "ui") {
-			cfg.Sidebar = false
-		}
-		return cfg
+		wire, recovery = recoverPluginConfigWire(raw)
 	}
 	if wire.Notify.Enabled != nil {
 		cfg.NotifyEnabled = *wire.Notify.Enabled
+	}
+	if recovery.NotifyEnabledPresent && !recovery.NotifyDecoded {
+		cfg.NotifyEnabled = false
 	}
 	if thr, ok := validThresholds(wire.Notify.RemainingThresholds); ok {
 		cfg.RemainingThresholds = thr
@@ -321,8 +384,14 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	if wire.UI.Sidebar != nil {
 		cfg.Sidebar = *wire.UI.Sidebar
 	}
+	if recovery.UISidebarPresent && !recovery.UIDecoded {
+		cfg.Sidebar = false
+	}
 	if wire.Update.AutoCheck != nil {
 		cfg.AutoCheck = *wire.Update.AutoCheck
+	}
+	if recovery.UpdateAutoCheckPresent && !recovery.UpdateDecoded {
+		cfg.AutoCheck = false
 	}
 	home, _ := os.UserHomeDir()
 	if wire.State.Dir != "" {
@@ -339,7 +408,8 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		quotaFamilies[id] = true
 	}
 	seenFamilies := make(map[string]bool)
-	cfg.ProviderAllowlistConfigured = len(wire.Providers.Enabled) > 0
+	cfg.ProviderAllowlistConfigured = len(wire.Providers.Enabled) > 0 ||
+		(recovery.ProvidersEnabledPresent && !recovery.ProvidersDecoded)
 	for _, rawID := range wire.Providers.Enabled {
 		id := strings.ToLower(strings.TrimSpace(rawID))
 		if id == "" || seenFamilies[id] {
@@ -394,14 +464,104 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	return cfg
 }
 
-func hasTOMLTable(raw, name string) bool {
-	want := "[" + name + "]"
-	for _, line := range strings.Split(raw, "\n") {
-		if strings.TrimSpace(line) == want {
+func scanConfigKeyPresence(raw string) configRecovery {
+	return configRecovery{
+		NotifyEnabledPresent:    hasTOMLKey(raw, "notify", "enabled"),
+		UISidebarPresent:        hasTOMLKey(raw, "ui", "sidebar"),
+		ProvidersEnabledPresent: hasTOMLKey(raw, "providers", "enabled"),
+		UpdateAutoCheckPresent:  hasTOMLKey(raw, "update", "auto_check"),
+	}
+}
+
+func hasTOMLKey(raw, table, key string) bool {
+	section := ""
+	raw = strings.TrimPrefix(raw, "\ufeff")
+	for _, rawLine := range strings.Split(raw, "\n") {
+		line := strings.TrimSpace(stripTOMLComment(rawLine))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			section = tomlSectionName(line)
+			continue
+		}
+		lhs, rhs, ok := splitTOMLAssignment(line)
+		if !ok {
+			continue
+		}
+		lhs = compactTOMLKey(lhs)
+		if lhs == table+"."+key || section == table && lhs == key {
+			return true
+		}
+		if lhs == table && inlineTOMLTableHasKey(rhs, key) {
 			return true
 		}
 	}
 	return false
+}
+
+func stripTOMLComment(line string) string {
+	const (
+		doubleQuote = byte(34)
+		singleQuote = byte(39)
+		escape      = byte(92)
+		comment     = byte(35)
+	)
+	var quote byte
+	escaped := false
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if quote == doubleQuote && ch == escape && !escaped {
+				escaped = true
+				continue
+			}
+			if ch == quote && !escaped {
+				quote = 0
+			}
+			escaped = false
+			continue
+		}
+		if ch == doubleQuote || ch == singleQuote {
+			quote = ch
+			continue
+		}
+		if ch == comment {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func tomlSectionName(line string) string {
+	if strings.HasPrefix(line, "[[") {
+		return ""
+	}
+	end := strings.Index(line, "]")
+	if end < 0 {
+		return ""
+	}
+	return compactTOMLKey(line[1:end])
+}
+
+func splitTOMLAssignment(line string) (string, string, bool) {
+	if i := strings.Index(line, "="); i >= 0 {
+		return line[:i], line[i+1:], true
+	}
+	return "", "", false
+}
+
+func compactTOMLKey(value string) string {
+	replacer := strings.NewReplacer(" ", "", "\t", "", "\r", "")
+	return replacer.Replace(strings.TrimSpace(value))
+}
+
+func inlineTOMLTableHasKey(value, key string) bool {
+	compact := compactTOMLKey(value)
+	if !strings.HasPrefix(compact, "{") {
+		return false
+	}
+	return strings.Contains(compact, "{"+key+"=") || strings.Contains(compact, ","+key+"=")
 }
 
 func validStateRoot(root, home string) bool {
@@ -412,7 +572,48 @@ func validStateRoot(root, home string) bool {
 	if err != nil {
 		return false
 	}
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+
+	rootInfo, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	match, err := sameFileAsPathOrAncestor(rootInfo, home)
+	if err != nil || match {
+		return false
+	}
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return false
+	}
+	if resolvedHome == filepath.Clean(home) {
+		return true
+	}
+	match, err = sameFileAsPathOrAncestor(rootInfo, resolvedHome)
+	return err == nil && !match
+}
+
+func sameFileAsPathOrAncestor(target os.FileInfo, path string) (bool, error) {
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Stat(current)
+		if err != nil {
+			return false, err
+		}
+		if os.SameFile(target, info) {
+			return true, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false, nil
+		}
+		current = parent
+	}
 }
 
 func (c PluginConfig) AllowsProviderFamily(id string) bool {
