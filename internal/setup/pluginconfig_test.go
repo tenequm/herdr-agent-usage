@@ -322,3 +322,29 @@ func contains(s, sub string) bool {
 			return false
 		}())
 }
+
+func TestParsePluginConfigTOML_TypeMismatchFailsClosed(t *testing.T) {
+	cfg := ParsePluginConfigTOML("[providers]\nenabled = \"claude\"\n[ui]\nsidebar = \"false\"\n")
+	if cfg.DecodeError == "" || !cfg.ProviderAllowlistConfigured || len(cfg.EnabledProviderFamilies) != 0 || cfg.Sidebar {
+		t.Fatalf("config did not fail closed: %+v", cfg)
+	}
+}
+
+func TestParsePluginConfigTOML_StateRootAndClaudeIDSafety(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, root := range []string{"/", home, filepath.Dir(home)} {
+		cfg := ParsePluginConfigTOML("[state]\ndir = \"" + root + "\"\n")
+		if cfg.StateDir != "" || cfg.InvalidStateDir == "" {
+			t.Fatalf("unsafe root %q accepted: %+v", root, cfg)
+		}
+	}
+	raw := "[state]\ndir = \"" + filepath.Join(home, "state") + "\"\n" +
+		"[[claude.profiles]]\nid = \"work\"\nconfig_dir = \"/tmp/a\"\n" +
+		"[[claude.profiles]]\nid = \"Work\"\nconfig_dir = \"/tmp/b\"\n" +
+		"[[codex.profiles]]\nid = \".work\"\ncodex_home = \"/tmp/c\"\n"
+	cfg := ParsePluginConfigTOML(raw)
+	if len(cfg.ClaudeProfiles) != 1 || len(cfg.InvalidProfileIDs) != 1 || len(cfg.CodexProfiles) != 1 {
+		t.Fatalf("profile validation = %+v", cfg)
+	}
+}

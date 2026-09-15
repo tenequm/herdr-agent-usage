@@ -1,19 +1,19 @@
 /**
  * Claude multi-account profile model.
  *
- * A profile is one CLAUDE_CONFIG_DIR-scoped account. All plugin-derived files
- * (limits cache, notify state, transcript root) live under the profile's config
- * dir, so two accounts never collide. Configured paths are normalized (leading
- * "~" expanded, cleaned) so config.toml and the env var can spell the same dir
- * differently. Absence of any configured profile synthesizes today's single
- * implicit "claude" profile, whose derived paths are byte-identical to the
- * historical ~/.claude defaults (env overrides still win).
+ * A profile is one CLAUDE_CONFIG_DIR-scoped account. The transcript root follows
+ * the profile config dir. Plugin-owned caches and notification state use the
+ * configured state root when present, so two accounts never collide. Paths are
+ * normalized so config.toml and the environment can spell the same directory
+ * differently. Without configured profiles, the implicit "claude" profile
+ * retains the historical ~/.claude paths (environment overrides still win).
  */
 package claude
 
 import (
 	"path/filepath"
-	"strings"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pathutil"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
@@ -87,13 +87,7 @@ func firstNonEmpty(values ...string) string {
 // about the same profile. A relative config_dir is therefore rejected by
 // ResolveProfiles rather than kept and compared relatively (see validateSpec).
 func normalizePath(path, home string) string {
-	if path == "" {
-		return ""
-	}
-	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	return filepath.Clean(path)
+	return pathutil.ExpandHome(path, home)
 }
 
 // synthesizeDefaultProfile builds the single implicit "claude" profile.

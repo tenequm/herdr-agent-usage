@@ -3,7 +3,8 @@ package opencode
 
 import (
 	"path/filepath"
-	"strings"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pathutil"
 )
 
 const (
@@ -29,13 +30,7 @@ type OpenCodeProfile struct {
 }
 
 func normalizeProfileDataDir(path, home string) string {
-	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	if path == "" {
-		return ""
-	}
-	return filepath.Clean(path)
+	return pathutil.ExpandHome(path, home)
 }
 
 func defaultDataDir(env map[string]string, home string) string {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
+	"github.com/senna-lang/herdr-agent-usage/internal/pathutil"
 	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
@@ -48,6 +49,8 @@ type PluginConfig struct {
 	StateDir string
 	// InvalidStateDir is retained only for setup diagnostics.
 	InvalidStateDir string
+	// DecodeError is shown by setup; security-sensitive tables fail closed.
+	DecodeError string
 	// InvalidProfileIDs are rejected path-unsafe ids retained for setup warnings.
 	InvalidProfileIDs []string
 	// ProviderAllowlistConfigured distinguishes an absent or explicitly empty
@@ -283,6 +286,13 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 
 	var wire pluginConfigWire
 	if _, err := toml.Decode(raw, &wire); err != nil {
+		cfg.DecodeError = err.Error()
+		if hasTOMLTable(raw, "providers") {
+			cfg.ProviderAllowlistConfigured = true
+		}
+		if hasTOMLTable(raw, "ui") {
+			cfg.Sidebar = false
+		}
 		return cfg
 	}
 	if wire.Notify.Enabled != nil {
@@ -305,8 +315,8 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 	home, _ := os.UserHomeDir()
 	if wire.State.Dir != "" {
-		stateDir := normalizeConfigPath(wire.State.Dir, home)
-		if filepath.IsAbs(stateDir) {
+		stateDir := pathutil.ExpandHome(wire.State.Dir, home)
+		if filepath.IsAbs(stateDir) && validStateRoot(stateDir, home) {
 			cfg.StateDir = stateDir
 		} else {
 			cfg.InvalidStateDir = wire.State.Dir
@@ -332,7 +342,19 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		}
 	}
 
+	seenClaudeIDs := make([]string, 0, len(wire.Claude.Profiles))
 	for _, p := range wire.Claude.Profiles {
+		duplicateID := false
+		for _, seenID := range seenClaudeIDs {
+			if strings.EqualFold(seenID, p.ID) {
+				duplicateID = true
+				break
+			}
+		}
+		if cfg.StateDir != "" && duplicateID {
+			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "claude:"+p.ID)
+			continue
+		}
 		if cfg.StateDir != "" && !validProfileID(p.ID) {
 			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "claude:"+p.ID)
 			continue
@@ -343,12 +365,9 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 			ConfigDir: p.ConfigDir,
 			JSONPath:  p.ClaudeJSONPath,
 		})
+		seenClaudeIDs = append(seenClaudeIDs, p.ID)
 	}
 	for _, p := range wire.Codex.Profiles {
-		if cfg.StateDir != "" && !validProfileID(p.ID) {
-			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "codex:"+p.ID)
-			continue
-		}
 		cfg.CodexProfiles = append(cfg.CodexProfiles, codex.ProfileSpec{
 			ID:        p.ID,
 			Label:     p.Label,
@@ -356,28 +375,45 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		})
 	}
 	for _, p := range wire.Grok.Profiles {
-		if cfg.StateDir != "" && !validProfileID(p.ID) {
-			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "grok:"+p.ID)
-			continue
-		}
 		cfg.GrokProfiles = append(cfg.GrokProfiles, grok.ProfileSpec{ID: p.ID, Label: p.Label, GrokHome: p.GrokHome})
 	}
 	for _, p := range wire.OpenCode.Profiles {
-		if cfg.StateDir != "" && !validProfileID(p.ID) {
-			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "opencode:"+p.ID)
-			continue
-		}
 		cfg.OpenCodeProfiles = append(cfg.OpenCodeProfiles, opencode.ProfileSpec{ID: p.ID, Label: p.Label, DataDir: p.DataDir})
 	}
 	return cfg
 }
 
-func normalizeConfigPath(path, home string) string {
-	path = strings.TrimSpace(path)
-	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+func hasTOMLTable(raw, name string) bool {
+	want := "[" + name + "]"
+	for _, line := range strings.Split(raw, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
 	}
-	return filepath.Clean(path)
+	return false
+}
+
+func validStateRoot(root, home string) bool {
+	if root == "" || !filepath.IsAbs(root) {
+		return false
+	}
+	rel, err := filepath.Rel(root, home)
+	if err != nil {
+		return false
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func (c PluginConfig) AllowsProviderFamily(id string) bool {
+	if !c.ProviderAllowlistConfigured {
+		return true
+	}
+	for _, enabled := range c.EnabledProviderFamilies {
+		if enabled == id {
+			return true
+		}
+	}
+	return false
 }
 
 func validProfileID(id string) bool {

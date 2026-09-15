@@ -11,7 +11,8 @@ package codex
 
 import (
 	"path/filepath"
-	"strings"
+
+	"github.com/senna-lang/herdr-agent-usage/internal/pathutil"
 )
 
 // DefaultProfileID is the provider id used for the single implicit profile.
@@ -55,13 +56,7 @@ func firstNonEmpty(values ...string) string {
 // resolved against the cwd — the Codex process cwd is the user's project,
 // while the plugin action cwd is unrelated.
 func normalizePath(path, home string) string {
-	if path == "" {
-		return ""
-	}
-	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	return filepath.Clean(path)
+	return pathutil.ExpandHome(path, home)
 }
 
 func synthesizeDefaultProfile(home string, implicit bool) CodexProfile {

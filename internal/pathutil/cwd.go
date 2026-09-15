@@ -29,6 +29,18 @@ func Normalize(p string) string {
 	return p
 }
 
+// ExpandHome trims, expands a leading tilde, and cleans a configured path.
+func ExpandHome(path, home string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if home != "" && (path == "~" || strings.HasPrefix(path, "~/")) {
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+	}
+	return filepath.Clean(path)
+}
+
 // Equal reports whether a and b refer to the same directory for session matching.
 func Equal(a, b string) bool {
 	if a == b {
