@@ -96,7 +96,7 @@ func WriteClaudeLimitsCache(rateLimits RateLimitsInput, nowMs int64, path string
 	if err != nil {
 		return err
 	}
-	return pluginstate.AtomicWrite(path, append(b, '\n'))
+	return pluginstate.AtomicWrite(path, append(b, '\n'), 0o644)
 }
 
 // WriteClaudeLimitsCacheGuarded writes the cache when at least one window or a

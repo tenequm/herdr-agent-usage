@@ -86,8 +86,8 @@ func SecurePath(path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
-// DirMode and FileMode preserve legacy permissions outside the configured
-// root while enforcing private state beneath it.
+// DirMode preserves legacy directory permissions outside the configured root
+// while enforcing private state beneath it.
 func DirMode(path string) os.FileMode {
 	if SecurePath(path) {
 		return 0o700
@@ -95,11 +95,14 @@ func DirMode(path string) os.FileMode {
 	return 0o755
 }
 
-func FileMode(path string) os.FileMode {
+// FileMode returns 0600 beneath the configured root and legacyMode elsewhere.
+// The explicit legacy mode is load-bearing because historical call sites used
+// both 0644 and 0600.
+func FileMode(path string, legacyMode os.FileMode) os.FileMode {
 	if SecurePath(path) {
 		return 0o600
 	}
-	return 0o644
+	return legacyMode
 }
 
 // EnsureDir creates a state directory with the mode required for its path.
@@ -125,7 +128,7 @@ func EnsureDir(path string) error {
 
 // AtomicWrite writes data through a temporary file in the destination
 // directory and renames it into place.
-func AtomicWrite(path string, data []byte) error {
+func AtomicWrite(path string, data []byte, legacyMode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := EnsureDir(dir); err != nil {
 		return err
@@ -136,7 +139,7 @@ func AtomicWrite(path string, data []byte) error {
 	}
 	tempName := temp.Name()
 	defer func() { _ = os.Remove(tempName) }()
-	if err := temp.Chmod(FileMode(path)); err != nil {
+	if err := temp.Chmod(FileMode(path, legacyMode)); err != nil {
 		_ = temp.Close()
 		return err
 	}

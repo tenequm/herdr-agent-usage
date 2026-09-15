@@ -68,7 +68,7 @@ func AcquireLockIn(dir string) bool {
 	path := lockFilePathIn(dir)
 	deadline := time.Now().Add(lockTimeout)
 	for {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path, 0o644))
 		if err == nil {
 			_ = f.Close()
 			return true
@@ -170,7 +170,7 @@ func writeClaudeStateIn(dir string, state ClaudeNotifyState) {
 	if err != nil {
 		return
 	}
-	_ = pluginstate.AtomicWrite(path, b)
+	_ = pluginstate.AtomicWrite(path, b, 0o644)
 }
 
 // WithLockedState runs read→update→write under lock for Claude statusLine state.
@@ -221,7 +221,7 @@ func writeProviderState(state ProviderNotifyStateMap) {
 	if err != nil {
 		return
 	}
-	_ = pluginstate.AtomicWrite(path, b)
+	_ = pluginstate.AtomicWrite(path, b, 0o644)
 }
 
 // WithLockedProviderState runs provider-primary notify under the same lock.

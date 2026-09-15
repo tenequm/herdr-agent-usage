@@ -19,10 +19,10 @@ func TestConfiguredPathsAndPrivateAtomicWrite(t *testing.T) {
 		t.Fatalf("profile dir = %q", got)
 	}
 	path := filepath.Join(wantProfile, "state.json")
-	if err := AtomicWrite(path, []byte("first")); err != nil {
+	if err := AtomicWrite(path, []byte("first"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := AtomicWrite(path, []byte("second")); err != nil {
+	if err := AtomicWrite(path, []byte("second"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)

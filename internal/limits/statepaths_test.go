@@ -1,11 +1,27 @@
 package limits
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
 )
+
+func TestLegacyHistoryFileModeStaysReadable(t *testing.T) {
+	restore := pluginstate.Configure("")
+	defer restore()
+	path := filepath.Join(t.TempDir(), "usage-history.json")
+	t.Setenv("USAGEBAR_HISTORY_PATH", path)
+	SaveUsageHistory(UsageHistory{"provider": {{T: 1, Used: 2}}})
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("history mode = %o, want 644", info.Mode().Perm())
+	}
+}
 
 func TestConfiguredStateRootOwnsGlobalLimitFiles(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")

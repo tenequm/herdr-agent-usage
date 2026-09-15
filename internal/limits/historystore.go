@@ -49,5 +49,5 @@ func SaveUsageHistory(history UsageHistory) {
 	if err != nil {
 		return
 	}
-	_ = pluginstate.AtomicWrite(path, b)
+	_ = pluginstate.AtomicWrite(path, b, 0o644)
 }

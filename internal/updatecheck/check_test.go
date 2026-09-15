@@ -5,11 +5,40 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLegacyStateAndLockModesStayPrivate(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeState(dir, State{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{statePath(dir)} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", path, info.Mode().Perm())
+		}
+	}
+	release, ok := acquireLock(dir, time.Now())
+	if !ok {
+		t.Fatal("lock acquisition failed")
+	}
+	defer release()
+	info, err := os.Stat(lockPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("lock mode = %o, want 600", info.Mode().Perm())
+	}
+}
 
 func TestParseVersion(t *testing.T) {
 	got, err := ParseVersion("v1.2.3")

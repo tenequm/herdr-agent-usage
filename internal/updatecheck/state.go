@@ -45,7 +45,7 @@ func writeState(dir string, state State) error {
 	if err != nil {
 		return err
 	}
-	return pluginstate.AtomicWrite(statePath(dir), raw)
+	return pluginstate.AtomicWrite(statePath(dir), raw, 0o600)
 }
 
 // acquireLock lets simultaneous focus events coalesce to one check. A stale
@@ -55,11 +55,11 @@ func acquireLock(dir string, now time.Time) (func(), bool) {
 		return nil, false
 	}
 	path := lockPath(dir)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path, 0o600))
 	if err != nil {
 		if info, statErr := os.Stat(path); statErr == nil && now.Sub(info.ModTime()) > 2*time.Minute {
 			_ = os.Remove(path)
-			f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
+			f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path, 0o600))
 		}
 	}
 	if err != nil {

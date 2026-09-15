@@ -43,7 +43,7 @@ func WatchAlreadyRunning(now time.Time) bool {
 func tryAcquireWatchLock(now time.Time) (*os.File, bool) {
 	path := watchLockPath()
 	_ = pluginstate.EnsureDir(filepath.Dir(path))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path, 0o644))
 	if err == nil {
 		touchWatchLock(now)
 		return f, true
@@ -56,7 +56,7 @@ func tryAcquireWatchLock(now time.Time) (*os.File, bool) {
 		return nil, false
 	}
 	_ = os.Remove(path)
-	f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path))
+	f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, pluginstate.FileMode(path, 0o644))
 	if err != nil {
 		return nil, false
 	}

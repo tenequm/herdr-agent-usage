@@ -89,7 +89,7 @@ func TouchPaneHeartbeat(now time.Time) {
 
 func touchPaneHeartbeatWith(path string, now time.Time, fingerprint string) {
 	line := strconv.FormatInt(now.UnixMilli(), 10) + "|" + fingerprint + "\n"
-	_ = pluginstate.AtomicWrite(path, []byte(line))
+	_ = pluginstate.AtomicWrite(path, []byte(line), 0o644)
 }
 
 // PaneHeartbeatFresh reports whether the Agent Usage pane collected

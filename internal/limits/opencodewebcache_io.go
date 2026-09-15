@@ -47,5 +47,5 @@ func saveOpenCodeWebCache(limits *ProviderLimits, outcome openCodeWebOutcome, no
 		return
 	}
 	path := openCodeWebCachePath()
-	_ = pluginstate.AtomicWrite(path, raw)
+	_ = pluginstate.AtomicWrite(path, raw, 0o600)
 }

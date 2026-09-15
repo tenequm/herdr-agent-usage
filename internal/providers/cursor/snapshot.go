@@ -67,7 +67,7 @@ func WriteSnapshot(sessionsDir string, snap Snapshot) error {
 		// failure path so a crash mid-write leaves no debris behind.
 		_ = os.Remove(tempName)
 	}()
-	if err := temp.Chmod(pluginstate.FileMode(snapshotPath(sessionsDir, snap.SessionID))); err != nil {
+	if err := temp.Chmod(pluginstate.FileMode(snapshotPath(sessionsDir, snap.SessionID), 0o600)); err != nil {
 		_ = temp.Close()
 		return err
 	}
