@@ -5,7 +5,7 @@ test:
 
 # --build always compiles from source and fails hard, so a broken tree is
 # reported rather than papered over with a prebuilt release download. The
-# herdr-plugin.toml [[build]] hook calls the same script with --in-tree.
+# herdr-plugin.toml [[build]] hook calls the same strict --build mode.
 build:
 	bash bin/ensure-binary.sh --build
 	chmod +x bin/*.sh

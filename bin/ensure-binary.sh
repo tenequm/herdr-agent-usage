@@ -2,27 +2,22 @@
 # Provision the usagebar binary. Three modes, because the callers ask three
 # different questions:
 #
-#   --in-tree  Guarantee THIS checkout carries bin/usagebar. Used by the
-#              herdr-plugin.toml [[build]] hook, which runs on every
-#              `herdr plugin install` — including reinstall/update, the only
-#              way to update — against a fresh checkout that never carries the
-#              gitignored binary. $USAGEBAR_BIN and a usagebar on PATH
-#              deliberately do NOT satisfy this mode: they come from the
-#              install-time shell, which need not match the Herdr server
-#              environment that later runs the event hooks. Treating them as
-#              satisfying would reintroduce issue #48 silently.
+#   --in-tree  Guarantee THIS checkout carries bin/usagebar, building or
+#              downloading it if missing. This compatibility mode deliberately
+#              ignores $USAGEBAR_BIN and a usagebar on PATH: those executables
+#              need not match the checkout used by later event hooks.
 #
-#   --build    Always compile from source, and fail hard. Used by `make build`,
-#              where falling back to a prebuilt release would mask a broken
-#              tree instead of reporting it.
+#   --build    Always compile from source, and fail hard. Used by both the
+#              herdr-plugin.toml [[build]] hook and `make build`, where a
+#              prebuilt release would mask a broken checkout.
 #
 #   (default)  Ensure usagebar is resolvable the way run-usagebar.sh resolves
 #              it: $USAGEBAR_BIN -> sibling bin/usagebar -> PATH. Used by
 #              run-setup.sh as the fallback for installs predating the build
 #              hook.
 #
-# Build-or-download modes compile with the local Go toolchain and fall back to
-# a prebuilt release binary.
+# The default and --in-tree modes may fall back to a prebuilt release binary;
+# --build never downloads or executes one.
 # See https://github.com/senna-lang/herdr-agent-usage/issues/48
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
