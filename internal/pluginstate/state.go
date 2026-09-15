@@ -108,9 +108,10 @@ func FileMode(path string, legacyMode os.FileMode) os.FileMode {
 	return legacyMode
 }
 
-// EnsureDir creates state directories without changing permissions on paths
-// that already existed. Configured-root symlinks are rejected so a child can
-// never escape the state boundary.
+// EnsureDir creates state directories without changing permissions on existing
+// children. An existing configured root owned by the current user is tightened
+// to 0700 on a best-effort basis. Configured-root symlinks are rejected so a
+// child can never escape the state boundary.
 func EnsureDir(path string) error {
 	if !SecurePath(path) {
 		return os.MkdirAll(path, DirMode(path))
@@ -119,6 +120,10 @@ func EnsureDir(path string) error {
 	if info, err := os.Lstat(root); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return &os.PathError{Op: "mkdir", Path: root, Err: os.ErrInvalid}
+		}
+		if info.Mode().Perm()&0o077 != 0 && ownedByCurrentUser(info) {
+			// State remains usable when an existing root cannot be tightened.
+			_ = os.Chmod(root, 0o700)
 		}
 	} else if os.IsNotExist(err) {
 		if err := os.MkdirAll(root, 0o700); err != nil {

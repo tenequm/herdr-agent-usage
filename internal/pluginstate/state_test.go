@@ -85,10 +85,13 @@ func TestAtomicWriteLegacyRespectsUmaskAndExistingMode(t *testing.T) {
 	}
 }
 
-func TestEnsureDirLeavesExistingModesAndRejectsSymlinkChild(t *testing.T) {
+func TestEnsureDirTightensOwnedRootAndLeavesExistingChildModes(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "shared")
-	if err := os.Mkdir(root, 0o755); err != nil {
+	if err := os.Mkdir(root, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o775); err != nil {
 		t.Fatal(err)
 	}
 	restore := Configure(root)
@@ -97,14 +100,18 @@ func TestEnsureDirLeavesExistingModesAndRejectsSymlinkChild(t *testing.T) {
 	if err := os.Mkdir(existing, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	created := filepath.Join(existing, "created")
 	if err := EnsureDir(created); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{root, existing} {
-		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o755 {
-			t.Fatalf("existing mode %s = %v, %v", path, info, err)
-		}
+	if info, err := os.Stat(root); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("root mode = %v, %v", info, err)
+	}
+	if info, err := os.Stat(existing); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("existing child mode = %v, %v", info, err)
 	}
 	if info, err := os.Stat(created); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("created mode = %v, %v", info, err)
