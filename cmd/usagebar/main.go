@@ -327,8 +327,8 @@ func paintFrame(text string) {
 	_, _ = os.Stdout.WriteString("\x1b[H\x1b[2J\x1b[3J" + text + "\x1b[J\x1b[H")
 }
 
-func limitsPaneMode(args []string, enabledFamilies []string) (bool, string) {
-	activeOnly := !hasFlag(args, "--all") && len(enabledFamilies) == 0
+func limitsPaneMode(args []string, allowlistConfigured bool) (bool, string) {
+	activeOnly := !hasFlag(args, "--all") && !allowlistConfigured
 	if activeOnly {
 		return true, "(no agent panes open)"
 	}
@@ -338,7 +338,8 @@ func limitsPaneMode(args []string, enabledFamilies []string) (bool, string) {
 func runLimitsPane(args []string) error {
 	once := hasFlag(args, "--once")
 	// Default: show only providers with an open agent pane; --all shows every provider.
-	activeOnly, emptyMessage := limitsPaneMode(args, limits.ResolvedEnabledProviderFamilies())
+	_, allowlistConfigured := limits.ResolvedProviderAllowlist()
+	activeOnly, emptyMessage := limitsPaneMode(args, allowlistConfigured)
 	layoutFor := func() limits.PanelLayout {
 		layout := currentLayout()
 		layout.EmptyMessage = emptyMessage

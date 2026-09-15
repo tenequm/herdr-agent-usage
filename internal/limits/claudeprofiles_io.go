@@ -46,11 +46,12 @@ func ResolvedCacheDisplay() bool {
 	return cfg.CacheDisplay
 }
 
-// ResolvedEnabledProviderFamilies returns the validated global collection
-// allowlist. Empty means unrestricted for backward compatibility.
-func ResolvedEnabledProviderFamilies() []string {
+// ResolvedProviderAllowlist returns the validated global collection allowlist
+// and whether a non-empty list was configured. configured with an empty slice
+// means every entry was invalid and collection must fail closed.
+func ResolvedProviderAllowlist() (families []string, configured bool) {
 	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(processEnvMap()))
-	return append([]string(nil), cfg.EnabledProviderFamilies...)
+	return append([]string(nil), cfg.EnabledProviderFamilies...), cfg.ProviderAllowlistConfigured
 }
 
 // profileByIDIn looks up one profile by provider id within an already-resolved

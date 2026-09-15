@@ -50,7 +50,12 @@ type PluginConfig struct {
 	InvalidStateDir string
 	// InvalidProfileIDs are rejected path-unsafe ids retained for setup warnings.
 	InvalidProfileIDs []string
-	// EnabledProviderFamilies bounds all quota collection when non-empty.
+	// ProviderAllowlistConfigured distinguishes an absent or explicitly empty
+	// list from a non-empty list whose entries are all invalid. The latter must
+	// fail closed rather than silently enabling every provider.
+	ProviderAllowlistConfigured bool
+	// EnabledProviderFamilies bounds all quota collection when the allowlist is
+	// configured. It may be empty when every configured entry was invalid.
 	// Values are canonical provider family ids from providers.Registrations.
 	EnabledProviderFamilies []string
 	// UnknownProviderFamilies retains ignored ids for setup diagnostics only.
@@ -313,8 +318,9 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		quotaFamilies[id] = true
 	}
 	seenFamilies := make(map[string]bool)
+	cfg.ProviderAllowlistConfigured = len(wire.Providers.Enabled) > 0
 	for _, rawID := range wire.Providers.Enabled {
-		id := strings.TrimSpace(rawID)
+		id := strings.ToLower(strings.TrimSpace(rawID))
 		if id == "" || seenFamilies[id] {
 			continue
 		}

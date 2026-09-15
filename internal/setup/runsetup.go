@@ -60,10 +60,16 @@ func RunSetup(options SetupOptions) SetupReport {
 		"  ui.sidebar="+boolStr(pluginCfg.Sidebar),
 		"  update.auto_check="+boolStr(pluginCfg.AutoCheck),
 	)
-	if len(pluginCfg.EnabledProviderFamilies) == 0 {
+	switch {
+	case !pluginCfg.ProviderAllowlistConfigured:
 		lines = append(lines, "  providers.enabled=[] (all provider families)")
-	} else {
+	case len(pluginCfg.EnabledProviderFamilies) > 0:
 		lines = append(lines, "  providers.enabled=["+strings.Join(pluginCfg.EnabledProviderFamilies, ", ")+"]")
+	default:
+		lines = append(lines,
+			"  providers.enabled=[] (NO provider families)",
+			"  ! providers.enabled has no supported family; all collection is disabled",
+		)
 	}
 	for _, id := range pluginCfg.UnknownProviderFamilies {
 		lines = append(lines, "  ! unknown provider family ignored: "+id)

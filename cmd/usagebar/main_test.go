@@ -88,12 +88,12 @@ func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
 }
 
 func TestLimitsPaneEmptyMessageModes(t *testing.T) {
-	activeOnly, emptyMessage := limitsPaneMode(nil, nil)
+	activeOnly, emptyMessage := limitsPaneMode(nil, false)
 	if !activeOnly || emptyMessage != "(no agent panes open)" {
 		t.Fatalf("default mode = (%t, %q)", activeOnly, emptyMessage)
 	}
 
-	activeOnly, emptyMessage = limitsPaneMode(nil, []string{"claude"})
+	activeOnly, emptyMessage = limitsPaneMode(nil, true)
 	if activeOnly || strings.Contains(emptyMessage, "pane") {
 		t.Fatalf("allowlist mode = (%t, %q)", activeOnly, emptyMessage)
 	}

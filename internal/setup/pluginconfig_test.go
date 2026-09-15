@@ -133,15 +133,32 @@ data_dir = "/profiles/opencode"
 }
 
 func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
-	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
+	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"Claude\", \"unknown\", \"CODEX\", \"claude\"]")
+	if !cfg.ProviderAllowlistConfigured {
+		t.Fatal("non-empty provider allowlist was not marked configured")
+	}
 	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {
 		t.Fatalf("enabled providers = %v", cfg.EnabledProviderFamilies)
 	}
 	if !reflect.DeepEqual(cfg.UnknownProviderFamilies, []string{"unknown"}) {
 		t.Fatalf("unknown providers = %v", cfg.UnknownProviderFamilies)
 	}
-	if got := ParsePluginConfigTOML("").EnabledProviderFamilies; len(got) != 0 {
-		t.Fatalf("absent allowlist changed default: %v", got)
+	absent := ParsePluginConfigTOML("")
+	if absent.ProviderAllowlistConfigured || len(absent.EnabledProviderFamilies) != 0 {
+		t.Fatalf("absent allowlist changed default: %+v", absent)
+	}
+}
+
+func TestParsePluginConfigTOML_InvalidProviderAllowlistFailsClosed(t *testing.T) {
+	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"Claudee\", \"omp\", \"cursor\"]")
+	if !cfg.ProviderAllowlistConfigured {
+		t.Fatal("invalid non-empty provider allowlist was treated as absent")
+	}
+	if len(cfg.EnabledProviderFamilies) != 0 {
+		t.Fatalf("enabled providers = %v", cfg.EnabledProviderFamilies)
+	}
+	if !reflect.DeepEqual(cfg.UnknownProviderFamilies, []string{"claudee", "omp", "cursor"}) {
+		t.Fatalf("unknown providers = %v", cfg.UnknownProviderFamilies)
 	}
 }
 

@@ -147,6 +147,35 @@ func TestDefaultCollectOptions_ExpandsEnabledFamiliesToProfileIDs(t *testing.T) 
 	}
 }
 
+func TestDefaultCollectOptions_InvalidAllowlistCollectsNothing(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HOME", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(configDir, "config.toml"),
+		[]byte("[providers]\nenabled = [\"typo\", \"omp\", \"cursor\"]\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := DefaultCollectOptions()
+	if opts.Allowed == nil || len(opts.Allowed) != 0 {
+		t.Fatalf("allowed = %#v, want configured empty set", opts.Allowed)
+	}
+	for _, collectors := range [][]ClaudeProfileCollector{opts.Claude, opts.Codex, opts.Grok, opts.OpenCode} {
+		for i := range collectors {
+			collectors[i].Collector = func(*string, int64) ProviderLimits {
+				t.Fatal("collector ran for invalid allowlist")
+				return ProviderLimits{}
+			}
+		}
+	}
+	if got := CollectAllProviderLimits(nil, 0, opts); len(got) != 0 {
+		t.Fatalf("collected = %+v", got)
+	}
+}
+
 func TestCollectOptions_FilterAllowedPanesBeforeAdapters(t *testing.T) {
 	opts := CollectOptions{
 		Claude:  []ClaudeProfileCollector{{ID: "claude"}},

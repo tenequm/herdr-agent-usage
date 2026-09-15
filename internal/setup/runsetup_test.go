@@ -62,3 +62,29 @@ func TestRunSetup_WriteToast(t *testing.T) {
 		t.Fatal("missing append message")
 	}
 }
+
+func TestRunSetup_InvalidProviderAllowlistReportsCollectionDisabled(t *testing.T) {
+	pluginDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(pluginDir, "config.toml"),
+		[]byte("[providers]\nenabled = [\"typo\", \"omp\"]\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	report := RunSetup(SetupOptions{Env: map[string]string{
+		"HERDR_PLUGIN_CONFIG_DIR": pluginDir,
+		"HERDR_CONFIG":            filepath.Join(t.TempDir(), "config.toml"),
+	}})
+	text := strings.Join(report.Lines, "\n")
+	for _, want := range []string{
+		"providers.enabled=[] (NO provider families)",
+		"all collection is disabled",
+		"unknown provider family ignored: typo",
+		"unknown provider family ignored: omp",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+}

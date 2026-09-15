@@ -120,8 +120,8 @@ func defaultProfileFamilySpecs(opts CollectOptions) []profileFamilySpec {
 	}
 }
 
-func expandEnabledFamilies(opts CollectOptions, enabled []string) map[string]bool {
-	if len(enabled) == 0 {
+func expandEnabledFamilies(opts CollectOptions, enabled []string, configured bool) map[string]bool {
+	if !configured {
 		return nil
 	}
 	wanted := make(map[string]bool, len(enabled))
@@ -226,7 +226,8 @@ func DefaultCollectOptions() CollectOptions {
 		Grok:     grokCollectors,
 		OpenCode: openCodeCollectors,
 	}
-	opts.Allowed = expandEnabledFamilies(opts, ResolvedEnabledProviderFamilies())
+	enabledFamilies, allowlistConfigured := ResolvedProviderAllowlist()
+	opts.Allowed = expandEnabledFamilies(opts, enabledFamilies, allowlistConfigured)
 	return opts
 }
 

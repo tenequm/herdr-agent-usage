@@ -35,9 +35,9 @@ func DefaultBillingDeps() BillingDeps {
 	codexProfiles := ResolvedCodexProfiles()
 	grokProfiles := ResolvedGrokProfiles()
 	openCodeProfiles := ResolvedOpenCodeProfiles()
-	enabledFamilies := ResolvedEnabledProviderFamilies()
+	enabledFamilies, allowlistConfigured := ResolvedProviderAllowlist()
 	var candidateFamilies map[string]bool
-	if len(enabledFamilies) > 0 {
+	if allowlistConfigured {
 		candidateFamilies = make(map[string]bool, len(enabledFamilies))
 		for _, id := range enabledFamilies {
 			candidateFamilies[id] = true

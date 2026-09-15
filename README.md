@@ -247,8 +247,11 @@ config_dir = "~/.claude-work"
   configured profile in an enabled family appears even when no agent panes are
   open. The same allowlist bounds pane, watch, notify, status/update, startup,
   debug collection, browser import, and authenticated fetch paths. Empty or
-  absent keeps all providers enabled. Unknown IDs are ignored with a warning
-  from `usagebar setup`. Pay-as-you-go accounts remain excluded from
+  absent keeps all providers enabled. IDs are case-insensitive. A non-empty
+  list with no valid IDs fails closed and collects nothing; `usagebar setup`
+  reports every unknown ID and the disabled state. Malformed TOML still falls
+  back to all defaults, including unrestricted collection, because the config
+  cannot be decoded. Pay-as-you-go accounts remain excluded from
   subscription-window blocks.
 - `[ui].sidebar = false` makes `status`, `update`, `startup`, and the idle watcher
   publish no metadata tokens. The overlay also skips its periodic sidebar and
