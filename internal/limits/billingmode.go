@@ -204,8 +204,10 @@ func GrokBillingModeFromAuthMode(authMode *string) BillingMode {
 
 // BillingDeps injects billing-mode resolvers (for tests and I/O adapters).
 type BillingDeps struct {
-	// PaneMode resolves session-scoped evidence for one open pane.
-	PaneMode func(providerID string, pane OpenPaneSnapshot) BillingMode
+	// PaneMode resolves session-scoped evidence for one open pane. providerID is
+	// the already-resolved billing profile; harnessID identifies the session
+	// store for routed panes.
+	PaneMode func(providerID, harnessID string, pane OpenPaneSnapshot) BillingMode
 	// AccountMode resolves account-scoped evidence for a provider.
 	AccountMode func(providerID string) BillingMode
 	// ClaudeProfileIDs are the configured Claude profile ids, replacing the
@@ -262,7 +264,7 @@ func PaneBillingMode(providerID string, pane OpenPaneSnapshot, deps BillingDeps)
 	}
 	session := BillingUnknown
 	if deps.PaneMode != nil {
-		session = deps.PaneMode(harnessID, pane)
+		session = deps.PaneMode(resolvedProviderID, harnessID, pane)
 	}
 	return CombineBillingModes(account, session)
 }
@@ -355,7 +357,7 @@ func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps 
 		for _, entry := range panes {
 			session := BillingUnknown
 			if deps.PaneMode != nil {
-				session = deps.PaneMode(entry.harnessID, entry.pane)
+				session = deps.PaneMode(providerID, entry.harnessID, entry.pane)
 			}
 			if CombineBillingModes(account, session) != BillingPayAsYouGo {
 				set[providerID] = true

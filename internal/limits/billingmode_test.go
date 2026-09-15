@@ -171,7 +171,7 @@ func TestCombineBillingModes_ClaudeEnvOverridesSubscription(t *testing.T) {
 func depsFor(account map[string]BillingMode, pane map[string]BillingMode) BillingDeps {
 	return BillingDeps{
 		AccountMode: func(providerID string) BillingMode { return account[providerID] },
-		PaneMode: func(providerID string, p OpenPaneSnapshot) BillingMode {
+		PaneMode: func(_, _ string, p OpenPaneSnapshot) BillingMode {
 			return pane[p.PaneID]
 		},
 	}
@@ -210,9 +210,9 @@ func TestBillingProviderFilter_RoutedHarnessUsesBilledProvider(t *testing.T) {
 	panes := []OpenPaneSnapshot{{PaneID: "omp-go", Agent: "omp"}}
 	deps := BillingDeps{
 		ResolvePane: func(OpenPaneSnapshot) (string, string, bool) { return "opencode", "omp", true },
-		PaneMode: func(providerID string, _ OpenPaneSnapshot) BillingMode {
-			if providerID != "omp" {
-				t.Fatalf("PaneMode provider=%q want harness omp", providerID)
+		PaneMode: func(providerID, harnessID string, _ OpenPaneSnapshot) BillingMode {
+			if providerID != "opencode" || harnessID != "omp" {
+				t.Fatalf("PaneMode provider=%q harness=%q", providerID, harnessID)
 			}
 			return BillingSubscription
 		},
@@ -303,7 +303,7 @@ func TestPaneBillingMode_RespectsCandidateSetsBeforeResolvers(t *testing.T) {
 			calls := 0
 			deps := tc.deps
 			deps.AccountMode = func(string) BillingMode { calls++; return BillingSubscription }
-			deps.PaneMode = func(string, OpenPaneSnapshot) BillingMode { calls++; return BillingSubscription }
+			deps.PaneMode = func(string, string, OpenPaneSnapshot) BillingMode { calls++; return BillingSubscription }
 			if got := PaneBillingMode("grok", OpenPaneSnapshot{Agent: "grok"}, deps); got != BillingUnknown {
 				t.Fatalf("mode = %v, want Unknown", got)
 			}
@@ -330,16 +330,41 @@ func TestIntersectFilters(t *testing.T) {
 }
 
 func TestPaneBillingModeResolvesProfileBeforeCandidateCheck(t *testing.T) {
-	accountID, paneHarness := "", ""
+	accountID, paneProvider, paneHarness := "", "", ""
+	resolveCalls := 0
 	got := PaneBillingMode("claude", OpenPaneSnapshot{PaneID: "p", Agent: "claude"}, BillingDeps{
 		CandidateFamilyIDs:   map[string]bool{"claude": true},
 		CandidateProviderIDs: map[string]bool{"work": true},
-		ResolvePane:          func(OpenPaneSnapshot) (string, string, bool) { return "work", "claude", true },
-		AccountMode:          func(id string) BillingMode { accountID = id; return BillingSubscription },
-		PaneMode:             func(id string, _ OpenPaneSnapshot) BillingMode { paneHarness = id; return BillingSubscription },
+		ResolvePane: func(OpenPaneSnapshot) (string, string, bool) {
+			resolveCalls++
+			return "work", "claude", true
+		},
+		AccountMode: func(id string) BillingMode { accountID = id; return BillingSubscription },
+		PaneMode: func(providerID, harnessID string, _ OpenPaneSnapshot) BillingMode {
+			paneProvider, paneHarness = providerID, harnessID
+			return BillingSubscription
+		},
 	})
-	if got != BillingSubscription || accountID != "work" || paneHarness != "claude" {
-		t.Fatalf("mode=%v account=%q harness=%q", got, accountID, paneHarness)
+	if got != BillingSubscription || resolveCalls != 1 || accountID != "work" || paneProvider != "work" || paneHarness != "claude" {
+		t.Fatalf("mode=%v resolve calls=%d account=%q pane provider=%q harness=%q", got, resolveCalls, accountID, paneProvider, paneHarness)
+	}
+}
+
+func TestPaneBillingModePassesResolvedCodexProfileToSessionMode(t *testing.T) {
+	resolveCalls := 0
+	gotProvider, gotHarness := "", ""
+	got := PaneBillingMode("a", OpenPaneSnapshot{PaneID: "p", Agent: "codex"}, BillingDeps{
+		ResolvePane: func(OpenPaneSnapshot) (string, string, bool) {
+			resolveCalls++
+			return "b", "codex", true
+		},
+		PaneMode: func(providerID, harnessID string, _ OpenPaneSnapshot) BillingMode {
+			gotProvider, gotHarness = providerID, harnessID
+			return BillingSubscription
+		},
+	})
+	if got != BillingSubscription || resolveCalls != 1 || gotProvider != "b" || gotHarness != "codex" {
+		t.Fatalf("mode=%v resolve calls=%d provider=%q harness=%q", got, resolveCalls, gotProvider, gotHarness)
 	}
 }
 

@@ -149,7 +149,7 @@ func TestActiveAndBillingFilters_RoutedOMPClaudeSurvivesIntersection(t *testing.
 		ResolvePane: func(OpenPaneSnapshot) (string, string, bool) {
 			return "claude", "omp", true
 		},
-		PaneMode: func(string, OpenPaneSnapshot) BillingMode { return BillingSubscription },
+		PaneMode: func(string, string, OpenPaneSnapshot) BillingMode { return BillingSubscription },
 	})
 	got := IntersectFilters(active, billing)
 	if !got["claude"] || len(got) != 1 {

@@ -89,17 +89,11 @@ func DefaultBillingDeps() BillingDeps {
 	}
 
 	return BillingDeps{
-		PaneMode: func(harnessID string, pane OpenPaneSnapshot) BillingMode {
-			providerID := harnessID
-			switch harnessID {
-			case "claude":
-				providerID, _ = BuildClaudePaneProviderResolver(profiles)(pane)
-			case "codex":
-				providerID, _ = BuildCodexPaneProviderResolver(codexProfiles)(pane)
-			case "grok":
-				providerID, _ = BuildGrokPaneProviderResolver(grokProfiles)(pane)
-			case "opencode":
-				providerID, _ = BuildOpenCodePaneProviderResolver(openCodeProfiles)(pane)
+		PaneMode: func(providerID, harnessID string, pane OpenPaneSnapshot) BillingMode {
+			// Routed harnesses own their session evidence even though their
+			// subscription window belongs to another provider account.
+			if harnessID == "omp" || harnessID == "pi" {
+				providerID = harnessID
 			}
 			return paneBillingModeWith(profiles, codexProfiles, grokProfiles, openCodeProfiles, providerID, pane)
 		},
