@@ -249,9 +249,8 @@ config_dir = "~/.claude-work"
   debug collection, browser import, and authenticated fetch paths. Empty or
   absent keeps all providers enabled. IDs are case-insensitive. A non-empty
   list with no valid IDs fails closed and collects nothing; `usagebar setup`
-  reports every unknown ID and the disabled state. Malformed TOML still falls
-  back to all defaults, including unrestricted collection, because the config
-  cannot be decoded. Pay-as-you-go accounts remain excluded from
+  reports every unknown ID and the disabled state. A config decode error is reported by `usagebar setup`; `[providers]` fails
+  closed to no collection and `[ui]` fails closed to sidebar disabled. Pay-as-you-go accounts remain excluded from
   subscription-window blocks.
 - `[ui].sidebar = false` makes `status`, `update`, `startup`, and the idle watcher
   publish no metadata tokens. The overlay also skips its periodic sidebar and
@@ -270,8 +269,8 @@ config_dir = "~/.claude-work"
   `USAGEBAR_*_PATH` overrides retain precedence. With no key, all legacy paths
   remain unchanged; state is not migrated from them.
 
-Profile IDs become path segments when a state root is configured. IDs beginning
-with `.`, containing `..`, `/`, or `\\` are rejected and reported by
+Profile IDs for Claude become path segments when a state root is configured.
+Claude IDs beginning with `.`, containing `..`, `/`, or `\` are rejected and reported by
 `usagebar setup`.
 
 

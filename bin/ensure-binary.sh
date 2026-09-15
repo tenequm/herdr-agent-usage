@@ -1,11 +1,6 @@
 #!/bin/bash
-# Provision the usagebar binary. Three modes, because the callers ask three
+# Provision the usagebar binary. Two modes answer two
 # different questions:
-#
-#   --in-tree  Guarantee THIS checkout carries bin/usagebar, building or
-#              downloading it if missing. This compatibility mode deliberately
-#              ignores $USAGEBAR_BIN and a usagebar on PATH: those executables
-#              need not match the checkout used by later event hooks.
 #
 #   --build    Always compile from source, and fail hard. Used by both the
 #              herdr-plugin.toml [[build]] hook and `make build`, where a
@@ -16,7 +11,7 @@
 #              run-setup.sh as the fallback for installs predating the build
 #              hook.
 #
-# The default and --in-tree modes may fall back to a prebuilt release binary;
+# The default mode may fall back to a prebuilt release binary;
 # --build never downloads or executes one.
 # See https://github.com/senna-lang/herdr-agent-usage/issues/48
 set -euo pipefail
@@ -100,7 +95,7 @@ build_from_source() {
   command -v go >/dev/null 2>&1 || return 1
   echo "usagebar: building bin/usagebar (go build)..." >&2
   mkdir -p "$ROOT/bin"
-  (cd "$ROOT" && go build -o bin/usagebar ./cmd/usagebar)
+  (cd "$ROOT" && CGO_ENABLED=0 go build -o bin/usagebar ./cmd/usagebar)
 }
 
 # Guarantee $ROOT/bin/usagebar exists, by any available means. A source build
@@ -132,11 +127,6 @@ usagebar_resolvable() {
 }
 
 case "${1:-}" in
-  --in-tree)
-    if [[ ! -x "$ROOT/bin/usagebar" ]]; then
-      install_binary
-    fi
-    ;;
   --build)
     build_from_source || {
       echo "usagebar: go build failed (is the Go toolchain installed?)" >&2
@@ -149,7 +139,7 @@ case "${1:-}" in
     fi
     ;;
   *)
-    echo "usage: ensure-binary.sh [--in-tree|--build]" >&2
+    echo "usage: ensure-binary.sh [--build]" >&2
     exit 2
     ;;
 esac

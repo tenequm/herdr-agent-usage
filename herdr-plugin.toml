@@ -11,8 +11,7 @@ platforms = ["macos", "linux"]
 # with a fresh checkout, which never carries the gitignored bin/usagebar, so
 # without this hook the meters, rate-limit cache, and statusLine bridge go
 # silently dead until the user runs `make build` by hand. If the hook fails
-# (offline, no Go, no gh/curl) the install aborts and the previous working
-# without a usable local Go toolchain or the source build fails, the install
+# without a usable local Go toolchain or when the source build fails, the install
 # aborts and the previous working install is left untouched. This hook never
 # downloads or executes a release binary.
 # See https://github.com/senna-lang/herdr-agent-usage/issues/48

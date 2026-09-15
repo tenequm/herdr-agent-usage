@@ -66,11 +66,8 @@ End state:
 - Confirm `herdr` is on `PATH` and works (`herdr --help` or `herdr plugin list`).  
 - Herdr **≥ 0.7.5** is required.
 - OS: macOS or Linux.  
-- **Go toolchain ≥ 1.25** (`go version`) recommended. `usagebar.setup`
-  resolves the binary automatically on first run: it builds with Go when
-  available, else downloads a prebuilt binary from GitHub Releases. If
-  neither Go nor a working download path exists, stop and ask the user
-  to install Go.  
+- **Go toolchain ≥ 1.25** (`go version`) is required. Plugin installation
+  builds the binary from this checkout and fails if the source build cannot run.
 - Recommended (ask if missing, do not force):
 
 ```bash
@@ -111,17 +108,14 @@ herdr plugin list
 
 Expect `usagebar` (Agent Usage) **enabled**.
 
-### 3. Seed plugin config (builds the binary on first run)
+### 3. Seed plugin config
 
 ```bash
 herdr plugin action invoke usagebar.setup
 ```
 
-This does two things:
+This:
 
-- **Resolves `bin/usagebar`** automatically if it is missing: builds with
-  the local Go toolchain, else downloads a prebuilt GitHub Release binary.
-  No separate `make build` is needed in the normal flow.  
 - Creates plugin config under
   `~/.config/herdr/plugins/config/usagebar/config.toml` when missing
   (`[notify]` thresholds, etc.). It does **not** by itself enable toast
@@ -134,10 +128,6 @@ finishes. Check the outcome via the plugin log:
 herdr plugin log list --plugin usagebar --limit 5
 ```
 
-If the log shows a binary-resolution failure (exit 127): install Go and run
-`make build` from the plugin root (resolve the path via `herdr plugin
-list`), or install + authenticate `gh` for the prebuilt download, then
-re-invoke `usagebar.setup`.
 
 ### 4. Sidebar rows (required)
 
