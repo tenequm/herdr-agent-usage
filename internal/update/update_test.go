@@ -46,6 +46,7 @@ func TestPaneCwdForUpdate_OtherAgentsPreferForegroundCwd(t *testing.T) {
 
 func TestRunUpdate_RefreshesWorkingPane(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", filepath.Join(root, "plugin-config"))
 	logPath := filepath.Join(root, "metadata.log")
 	binPath := filepath.Join(root, "fake-herdr")
 	script := `#!/bin/sh

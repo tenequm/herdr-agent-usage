@@ -26,6 +26,7 @@ func TestRunUpdate_MetadataClearingPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
+			t.Setenv("HERDR_PLUGIN_CONFIG_DIR", filepath.Join(root, "plugin-config"))
 			logPath := filepath.Join(root, "metadata.log")
 			binPath := filepath.Join(root, "fake-herdr")
 			script := `#!/bin/sh

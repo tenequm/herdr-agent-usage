@@ -87,6 +87,18 @@ func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
 	}
 }
 
+func TestLimitsPaneEmptyMessageModes(t *testing.T) {
+	activeOnly, emptyMessage := limitsPaneMode(nil, nil)
+	if !activeOnly || emptyMessage != "(no agent panes open)" {
+		t.Fatalf("default mode = (%t, %q)", activeOnly, emptyMessage)
+	}
+
+	activeOnly, emptyMessage = limitsPaneMode(nil, []string{"claude"})
+	if activeOnly || strings.Contains(emptyMessage, "pane") {
+		t.Fatalf("allowlist mode = (%t, %q)", activeOnly, emptyMessage)
+	}
+}
+
 func TestRunUpdateCheck_AutoDisabledMakesNoRequest(t *testing.T) {
 	configDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[update]\nauto_check = false\n"), 0o644); err != nil {
