@@ -180,7 +180,7 @@ var codexAccountEmailIn = codex.AccountEmailIn
 
 // applyCodexProfileGrouping nests pl under the shared "Codex" heading when
 // multiProfile is true. With account-email display enabled, AccountLabel uses
-// the locally decoded email; a single profile keeps its normal Codex heading
+// the locally decoded email; a single profile uses the canonical Codex heading
 // and uses AccountLabel as the indented line beneath it.
 func applyCodexProfileGrouping(
 	pl ProviderLimits,
@@ -193,6 +193,8 @@ func applyCodexProfileGrouping(
 			pl.AccountLabel = email
 			if multiProfile {
 				pl.GroupLabel = "Codex"
+			} else {
+				pl.Label = codex.DefaultProfileLabel
 			}
 			return pl
 		}

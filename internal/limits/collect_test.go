@@ -556,8 +556,8 @@ func TestDefaultCollectOptions_SingleCodexAccountEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := DefaultCollectOptions().Codex[0].Collector(nil, 0)
-	if got.GroupLabel != "" || got.AccountLabel != "person@example.com" {
-		t.Fatalf("single Codex display metadata = %q/%q", got.GroupLabel, got.AccountLabel)
+	if got.Label != "Codex" || got.GroupLabel != "" || got.AccountLabel != "person@example.com" {
+		t.Fatalf("single Codex display metadata = %q/%q/%q", got.Label, got.GroupLabel, got.AccountLabel)
 	}
 }
 
