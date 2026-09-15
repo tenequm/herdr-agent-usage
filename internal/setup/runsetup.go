@@ -53,6 +53,14 @@ func RunSetup(options SetupOptions) SetupReport {
 	lines = append(lines,
 		"  notify.enabled="+boolStr(pluginCfg.NotifyEnabled)+"  thresholds=["+strings.Join(thr, ", ")+"]",
 	)
+	if len(pluginCfg.EnabledProviderFamilies) == 0 {
+		lines = append(lines, "  providers.enabled=[] (all provider families)")
+	} else {
+		lines = append(lines, "  providers.enabled=["+strings.Join(pluginCfg.EnabledProviderFamilies, ", ")+"]")
+	}
+	for _, id := range pluginCfg.UnknownProviderFamilies {
+		lines = append(lines, "  ! unknown provider family ignored: "+id)
+	}
 	home, _ := os.UserHomeDir()
 	lines = append(lines, claudeProfileReportLines(
 		pluginCfg.ClaudeProfiles,

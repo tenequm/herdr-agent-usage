@@ -100,6 +100,20 @@ func TestSingleCollectorQuotaSpecs_MatchCapabilityRegistrations(t *testing.T) {
 	assertSameIDSet(t, "singleCollectorQuotaSpecs ids", got, want)
 }
 
+// TestCollectorFamilies_MatchCapabilityRegistrations makes the profile-family
+// expansion plus single-collector table exhaustive against the canonical
+// provider registry.
+func TestCollectorFamilies_MatchCapabilityRegistrations(t *testing.T) {
+	var got []string
+	for _, family := range defaultProfileFamilySpecs(CollectOptions{}) {
+		got = append(got, family.familyID)
+	}
+	for _, spec := range singleCollectorQuotaSpecs {
+		got = append(got, spec.id)
+	}
+	assertSameIDSet(t, "collector families", got, providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota))
+}
+
 // TestLimitIDSlotTables_MatchCapabilityRegistrations guards windowpool.go's
 // per-provider limit-id vocabulary: every quota-owning provider (including
 // Claude) must have a table, and no other provider must have one.

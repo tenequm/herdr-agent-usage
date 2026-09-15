@@ -35,6 +35,14 @@ func DefaultBillingDeps() BillingDeps {
 	codexProfiles := ResolvedCodexProfiles()
 	grokProfiles := ResolvedGrokProfiles()
 	openCodeProfiles := ResolvedOpenCodeProfiles()
+	enabledFamilies := ResolvedEnabledProviderFamilies()
+	var candidateFamilies map[string]bool
+	if len(enabledFamilies) > 0 {
+		candidateFamilies = make(map[string]bool, len(enabledFamilies))
+		for _, id := range enabledFamilies {
+			candidateFamilies[id] = true
+		}
+	}
 
 	ids := make([]string, len(profiles))
 	for i, profile := range profiles {
@@ -78,6 +86,8 @@ func DefaultBillingDeps() BillingDeps {
 		ResolvePane: func(pane OpenPaneSnapshot) (string, string, bool) {
 			return resolveBilledPane(profiles, codexProfiles, grokProfiles, openCodeProfiles, pane)
 		},
+		CandidateProviderIDs: DefaultCollectOptions().Allowed,
+		CandidateFamilyIDs:   candidateFamilies,
 	}
 }
 

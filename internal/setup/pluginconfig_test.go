@@ -42,6 +42,19 @@ func TestParsePluginConfigTOML_CacheDisplay(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
+	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
+	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {
+		t.Fatalf("enabled providers = %v", cfg.EnabledProviderFamilies)
+	}
+	if !reflect.DeepEqual(cfg.UnknownProviderFamilies, []string{"unknown"}) {
+		t.Fatalf("unknown providers = %v", cfg.UnknownProviderFamilies)
+	}
+	if got := ParsePluginConfigTOML("").EnabledProviderFamilies; len(got) != 0 {
+		t.Fatalf("absent allowlist changed default: %v", got)
+	}
+}
+
 func TestParsePluginConfigTOML_Custom(t *testing.T) {
 	cfg := ParsePluginConfigTOML(`
 [notify]

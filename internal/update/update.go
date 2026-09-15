@@ -243,6 +243,9 @@ func RunUpdateForPane(paneID string, force bool) {
 	if p == nil {
 		return
 	}
+	if !limits.DefaultCollectOptions().AllowsFamily(p.AgentID()) {
+		return
+	}
 
 	// A working pane can briefly have no fresh limit or context value while its
 	// collector or transcript is between complete records. Keep its last-known-

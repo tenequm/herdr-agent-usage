@@ -225,6 +225,12 @@ type BillingDeps struct {
 	// ResolvePane maps one harness pane to its billed provider while retaining
 	// the harness id needed to read session-specific evidence.
 	ResolvePane func(pane OpenPaneSnapshot) (providerID, harnessID string, ok bool)
+	// CandidateProviderIDs bounds account/session inspection before collectors
+	// run. nil retains the historical all-provider behavior.
+	CandidateProviderIDs map[string]bool
+	// CandidateFamilyIDs prevents pane resolution for harness families outside
+	// the configured allowlist. nil retains the historical behavior.
+	CandidateFamilyIDs map[string]bool
 }
 
 // PaneBillingMode combines account- and session-level evidence for one pane.
@@ -277,6 +283,9 @@ func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps 
 	byProvider := make(map[string][]billedPane)
 	if paneQueryOK {
 		for _, pane := range openPanes {
+			if deps.CandidateFamilyIDs != nil && !deps.CandidateFamilyIDs[strings.ToLower(pane.Agent)] {
+				continue
+			}
 			providerID, harnessID, ok := "", "", false
 			if deps.ResolvePane != nil {
 				providerID, harnessID, ok = deps.ResolvePane(pane)
@@ -291,6 +300,9 @@ func BillingProviderFilter(openPanes []OpenPaneSnapshot, paneQueryOK bool, deps 
 
 	set := make(map[string]bool)
 	for _, providerID := range allIDs {
+		if deps.CandidateProviderIDs != nil && !deps.CandidateProviderIDs[providerID] {
+			continue
+		}
 		account := BillingUnknown
 		if deps.AccountMode != nil {
 			account = deps.AccountMode(providerID)

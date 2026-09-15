@@ -46,6 +46,13 @@ func ResolvedCacheDisplay() bool {
 	return cfg.CacheDisplay
 }
 
+// ResolvedEnabledProviderFamilies returns the validated global collection
+// allowlist. Empty means unrestricted for backward compatibility.
+func ResolvedEnabledProviderFamilies() []string {
+	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(processEnvMap()))
+	return append([]string(nil), cfg.EnabledProviderFamilies...)
+}
+
 // profileByIDIn looks up one profile by provider id within an already-resolved
 // snapshot, so a caller that resolved the profiles once (e.g. per
 // AttachPaneActivity pass) can dispatch without re-reading config/env per hit.

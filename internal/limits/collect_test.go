@@ -104,6 +104,64 @@ func TestCollectAllProviderLimits_OnlySkipsFilteredCollectors(t *testing.T) {
 	}
 }
 
+func TestCollectAllProviderLimits_AllowedCannotBeOverriddenByOnly(t *testing.T) {
+	called := false
+	got := CollectAllProviderLimits(nil, 100, CollectOptions{
+		Grok: []GrokProfileCollector{{ID: "grok", Collector: func(_ *string, _ int64) ProviderLimits {
+			called = true
+			return ProviderLimits{ProviderID: "grok"}
+		}}},
+		Allowed: map[string]bool{"claude": true},
+		Only:    map[string]bool{"claude": true, "grok": true},
+	})
+	if called {
+		t.Fatal("globally excluded collector ran")
+	}
+	if len(got) != 1 || got[0].ProviderID != "claude" {
+		t.Fatalf("collected = %+v", got)
+	}
+}
+
+func TestDefaultCollectOptions_ExpandsEnabledFamiliesToProfileIDs(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HOME", t.TempDir())
+	raw := "[providers]\nenabled = [\"claude\", \"codex\"]\n" +
+		"[[claude.profiles]]\nid = \"primary\"\nconfig_dir = \"" + t.TempDir() + "\"\n" +
+		"[[claude.profiles]]\nid = \"secondary\"\nconfig_dir = \"" + t.TempDir() + "\"\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := DefaultCollectOptions()
+	want := map[string]bool{"primary": true, "secondary": true, "codex": true}
+	if len(opts.Allowed) != len(want) {
+		t.Fatalf("allowed = %v, want %v", opts.Allowed, want)
+	}
+	for id := range want {
+		if !opts.Allowed[id] {
+			t.Fatalf("allowed = %v, missing %q", opts.Allowed, id)
+		}
+	}
+	if opts.Allowed["grok"] || opts.Allowed["opencode"] {
+		t.Fatalf("excluded family expanded: %v", opts.Allowed)
+	}
+}
+
+func TestCollectOptions_FilterAllowedPanesBeforeAdapters(t *testing.T) {
+	opts := CollectOptions{
+		Claude:  []ClaudeProfileCollector{{ID: "claude"}},
+		Allowed: map[string]bool{"claude": true},
+	}
+	got := opts.FilterAllowedPanes([]OpenPaneSnapshot{
+		{PaneID: "c", Agent: "claude"},
+		{PaneID: "g", Agent: "grok"},
+		{PaneID: "o", Agent: "omp"},
+	})
+	if len(got) != 1 || got[0].PaneID != "c" {
+		t.Fatalf("filtered panes = %+v", got)
+	}
+}
+
 func TestCollectAllProviderLimits_MultipleClaudeProfiles(t *testing.T) {
 	got := CollectAllProviderLimits(nil, 100, CollectOptions{
 		Claude: []ClaudeProfileCollector{

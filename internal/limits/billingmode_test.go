@@ -223,6 +223,33 @@ func TestBillingProviderFilter_RoutedHarnessUsesBilledProvider(t *testing.T) {
 	}
 }
 
+func TestBillingProviderFilter_AllowlistSkipsUnlistedPaneResolution(t *testing.T) {
+	resolved := false
+	accountReads := 0
+	set := BillingProviderFilter(
+		[]OpenPaneSnapshot{{PaneID: "omp", Agent: "omp"}},
+		true,
+		BillingDeps{
+			CandidateFamilyIDs:   map[string]bool{"claude": true},
+			CandidateProviderIDs: map[string]bool{"claude": true},
+			ResolvePane: func(OpenPaneSnapshot) (string, string, bool) {
+				resolved = true
+				return "grok", "omp", true
+			},
+			AccountMode: func(string) BillingMode {
+				accountReads++
+				return BillingUnknown
+			},
+		},
+	)
+	if resolved {
+		t.Fatal("unlisted OMP pane was resolved")
+	}
+	if accountReads != 1 || len(set) != 1 || !set["claude"] {
+		t.Fatalf("account reads=%d set=%v", accountReads, set)
+	}
+}
+
 func TestBillingProviderFilter_AccountPayAsYouGoExcludes(t *testing.T) {
 	// API-key Claude account: excluded even with an open claude pane.
 	panes := []OpenPaneSnapshot{{PaneID: "c1", Agent: "claude"}}

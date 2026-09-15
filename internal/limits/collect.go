@@ -7,7 +7,11 @@ package limits
 
 import (
 	"path/filepath"
+	"strings"
 
+	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/opencode"
 )
 
@@ -47,6 +51,93 @@ type CollectOptions struct {
 	// Only restricts collection to these provider ids (nil = all providers).
 	// Filtered providers are skipped entirely: their collectors never run.
 	Only map[string]bool
+	// Allowed is the process configuration's global collection bound. Unlike
+	// Only, callers must not replace it when applying pane or billing filters.
+	// nil means all registered quota families (backward-compatible default).
+	Allowed map[string]bool
+}
+
+// AllowsFamily reports whether a provider family is inside the configured
+// collection bound. It is used before sidebar resolution touches a harness's
+// session or credential stores.
+func (o CollectOptions) AllowsFamily(familyID string) bool {
+	familyID = strings.ToLower(familyID)
+	if o.Allowed == nil {
+		return true
+	}
+	for _, spec := range defaultProfileFamilySpecs(o) {
+		if spec.familyID == familyID {
+			for _, id := range spec.profileIDs {
+				if o.Allowed[id] {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+// FilterAllowedPanes removes panes whose harness family is outside the global
+// collection bound before activity, cache, billing, or API-usage adapters can
+// inspect their session stores.
+func (o CollectOptions) FilterAllowedPanes(panes []OpenPaneSnapshot) []OpenPaneSnapshot {
+	if o.Allowed == nil {
+		return panes
+	}
+	out := make([]OpenPaneSnapshot, 0, len(panes))
+	for _, pane := range panes {
+		if o.AllowsFamily(pane.Agent) {
+			out = append(out, pane)
+		}
+	}
+	return out
+}
+
+type profileFamilySpec struct {
+	familyID   string
+	profileIDs []string
+}
+
+func collectorIDs(specs []ClaudeProfileCollector) []string {
+	ids := make([]string, len(specs))
+	for i, spec := range specs {
+		ids[i] = spec.ID
+	}
+	return ids
+}
+
+// defaultProfileFamilySpecs is the family-to-profile expansion table. Family
+// ids come from provider registrations and profile ids come from the same
+// resolved collector specs used by collection, so no provider list or profile
+// id is duplicated here.
+func defaultProfileFamilySpecs(opts CollectOptions) []profileFamilySpec {
+	return []profileFamilySpec{
+		{claude.Provider.AgentID(), collectorIDs(opts.Claude)},
+		{codex.Provider.AgentID(), collectorIDs(opts.Codex)},
+		{opencode.Provider.AgentID(), collectorIDs(opts.OpenCode)},
+		{grok.Provider.AgentID(), collectorIDs(opts.Grok)},
+	}
+}
+
+func expandEnabledFamilies(opts CollectOptions, enabled []string) map[string]bool {
+	if len(enabled) == 0 {
+		return nil
+	}
+	wanted := make(map[string]bool, len(enabled))
+	for _, id := range enabled {
+		wanted[id] = true
+	}
+	allowed := make(map[string]bool)
+	for _, family := range defaultProfileFamilySpecs(opts) {
+		if !wanted[family.familyID] {
+			continue
+		}
+		for _, id := range family.profileIDs {
+			allowed[id] = true
+		}
+	}
+	return allowed
 }
 
 // DefaultCollectOptions wires production local collectors (no network), one
@@ -129,12 +220,14 @@ func DefaultCollectOptions() CollectOptions {
 		}
 	}
 
-	return CollectOptions{
+	opts := CollectOptions{
 		Claude:   claudeCollectors,
 		Codex:    codexCollectors,
 		Grok:     grokCollectors,
 		OpenCode: openCodeCollectors,
 	}
+	opts.Allowed = expandEnabledFamilies(opts, ResolvedEnabledProviderFamilies())
+	return opts
 }
 
 // singleCollectorQuotaSpecs pairs each still-single quota-owning provider
@@ -156,6 +249,9 @@ var singleCollectorQuotaSpecs = []struct {
 // (collectors never run). Pass DefaultCollectOptions() for production local
 // collectors.
 func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []ProviderLimits {
+	allowed := func(id string) bool {
+		return opts.Allowed == nil || opts.Allowed[id]
+	}
 	collect := func(collector LimitsCollector, id, label string) ProviderLimits {
 		if collector != nil {
 			return collector(cwd, nowMs)
@@ -188,27 +284,27 @@ func CollectAllProviderLimits(cwd *string, nowMs int64, opts CollectOptions) []P
 
 	base := make([]ProviderLimits, 0, len(claudeSpecs)+len(codexSpecs)+len(openCodeSpecs)+len(grokSpecs)+len(singleCollectorQuotaSpecs))
 	for _, spec := range claudeSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
+		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range codexSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
+		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range openCodeSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
+		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range grokSpecs {
-		if opts.Only == nil || opts.Only[spec.ID] {
+		if allowed(spec.ID) && (opts.Only == nil || opts.Only[spec.ID]) {
 			base = append(base, collect(spec.Collector, spec.ID, spec.Label))
 		}
 	}
 	for _, spec := range singleCollectorQuotaSpecs {
-		if opts.Only == nil || opts.Only[spec.id] {
+		if allowed(spec.id) && (opts.Only == nil || opts.Only[spec.id]) {
 			base = append(base, collect(spec.field(opts), spec.id, spec.label))
 		}
 	}

@@ -249,10 +249,15 @@ type panelSnapshot struct {
 func collectPanel(nowMs int64, activeOnly bool) panelSnapshot {
 	snaps, panesOK := openPaneSnapshots()
 	opts := limits.DefaultCollectOptions()
-	if activeOnly {
+	allowlistConfigured := opts.Allowed != nil
+	if allowlistConfigured {
+		snaps = opts.FilterAllowedPanes(snaps)
+	}
+	if activeOnly && !allowlistConfigured {
 		opts.Only = limits.ActiveProviderFilter(snaps, panesOK)
-		// Subscription gate: hide providers whose open panes all run on
-		// pay-as-you-go backends (--all bypasses both filters).
+	}
+	if activeOnly || allowlistConfigured {
+		// Pay-as-you-go exclusion remains active inside a configured allowlist.
 		billing := limits.BillingProviderFilter(snaps, panesOK, limits.DefaultBillingDeps())
 		opts.Only = limits.IntersectFilters(opts.Only, billing)
 	}
@@ -316,12 +321,9 @@ func paintFrame(text string) {
 func runLimitsPane(args []string) error {
 	once := hasFlag(args, "--once")
 	// Default: show only providers with an open agent pane; --all shows every provider.
-	activeOnly := !hasFlag(args, "--all")
+	activeOnly := !hasFlag(args, "--all") && len(limits.ResolvedEnabledProviderFamilies()) == 0
 	layoutFor := func() limits.PanelLayout {
 		layout := currentLayout()
-		if activeOnly {
-			layout.EmptyMessage = "(no agent panes open)"
-		}
 		return layout
 	}
 	formatPanel := func(snap panelSnapshot, nowMs int64) string {
@@ -605,6 +607,9 @@ func describeProfileDirs(profiles []claude.ClaudeProfile) string {
 // failure can be attributed to the browser session or to the fetch, without
 // printing any cookie value.
 func runOpenCodeCheck() {
+	if !limits.DefaultCollectOptions().AllowsFamily("opencode") {
+		return
+	}
 	nowMs := time.Now().UnixMilli()
 	cookie := ""
 

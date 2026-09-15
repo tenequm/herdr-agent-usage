@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/senna-lang/herdr-agent-usage/internal/core"
+	"github.com/senna-lang/herdr-agent-usage/internal/providers"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/claude"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/codex"
 	"github.com/senna-lang/herdr-agent-usage/internal/providers/grok"
@@ -37,6 +38,11 @@ type PluginConfig struct {
 	// CacheDisplay controls both sidebar cache tokens and the Agent Usage pane's
 	// red-band cache warning.
 	CacheDisplay bool
+	// EnabledProviderFamilies bounds all quota collection when non-empty.
+	// Values are canonical provider family ids from providers.Registrations.
+	EnabledProviderFamilies []string
+	// UnknownProviderFamilies retains ignored ids for setup diagnostics only.
+	UnknownProviderFamilies []string
 	// ClaudeProfiles are the configured [[claude.profiles]] entries (unresolved).
 	// Empty means the single implicit "claude" profile is synthesized downstream.
 	ClaudeProfiles []claude.ProfileSpec
@@ -65,6 +71,9 @@ type pluginConfigWire struct {
 		LimitPercent *string `toml:"limit_percent"`
 		CacheDisplay *bool   `toml:"cache_display"`
 	} `toml:"ui"`
+	Providers struct {
+		Enabled []string `toml:"enabled"`
+	} `toml:"providers"`
 	Claude struct {
 		Profiles []profileWire `toml:"profiles"`
 	} `toml:"claude"`
@@ -151,6 +160,11 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		`limit_percent = "` + string(core.ParseLimitPercent(string(config.LimitPercent))) + `"`,
 		"# Set false to hide cache data from both sidebar and Agent Usage.",
 		"cache_display = " + strconv.FormatBool(config.CacheDisplay),
+		"",
+		"[providers]",
+		"# Limit every collector and the Agent Usage pane to these provider families.",
+		"# Empty keeps the default behavior (all supported provider families).",
+		"# enabled = [\"claude\", \"codex\"]",
 		"",
 		"# Multi-account Claude: uncomment and add one block per account.",
 
@@ -244,6 +258,24 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 	if wire.UI.CacheDisplay != nil {
 		cfg.CacheDisplay = *wire.UI.CacheDisplay
+	}
+
+	quotaFamilies := make(map[string]bool)
+	for _, id := range providers.IDsWithCapability(providers.CapOwnsSubscriptionQuota) {
+		quotaFamilies[id] = true
+	}
+	seenFamilies := make(map[string]bool)
+	for _, rawID := range wire.Providers.Enabled {
+		id := strings.TrimSpace(rawID)
+		if id == "" || seenFamilies[id] {
+			continue
+		}
+		seenFamilies[id] = true
+		if quotaFamilies[id] {
+			cfg.EnabledProviderFamilies = append(cfg.EnabledProviderFamilies, id)
+		} else {
+			cfg.UnknownProviderFamilies = append(cfg.UnknownProviderFamilies, id)
+		}
 	}
 
 	for _, p := range wire.Claude.Profiles {
