@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Setup action entry. The binary normally comes from the source-only manifest
 # build hook. This fallback remains for installations that predate that hook.
 # Resolution lives in a user-initiated, latency-tolerant path, never in

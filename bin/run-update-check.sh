@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Check GitHub Releases after focus events, at most once per day. The plugin
 # manifest is the source of truth for an installed checkout's version because
 # locally built binaries intentionally do not receive release ldflags.

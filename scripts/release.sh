@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Create a release tag only after the exact main commit has passed GitHub CI.
 # Usage: scripts/release.sh vX.Y.Z
 set -euo pipefail

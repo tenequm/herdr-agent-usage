@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Provision the usagebar binary. Two modes answer two
 # different questions:
 #

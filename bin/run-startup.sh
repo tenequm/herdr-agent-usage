@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Herdr [[startup]] / live-handoff hook: republish sidebar tokens for
 # every open agent pane. Server-owned metadata does not survive a cold
 # restart; the event path only sees one HERDR_PANE_ID.

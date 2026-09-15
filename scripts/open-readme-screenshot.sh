@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Open an existing isolated Herdr session in Ghostty for a human-maintained README screenshot.
 set -euo pipefail
 

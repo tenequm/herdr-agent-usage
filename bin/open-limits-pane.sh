@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Action: open the limits plugin pane as a focused overlay.
 set -euo pipefail
 HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
