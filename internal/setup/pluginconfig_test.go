@@ -54,6 +54,18 @@ func TestParsePluginConfigTOML_Sidebar(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_AutoCheck(t *testing.T) {
+	if !DefaultPluginConfig.AutoCheck || !ParsePluginConfigTOML("").AutoCheck {
+		t.Fatal("automatic update checks must default to enabled")
+	}
+	if ParsePluginConfigTOML("[update]\nauto_check = false").AutoCheck {
+		t.Fatal("auto_check=false was ignored")
+	}
+	if !contains(DefaultPluginConfigTOML(DefaultPluginConfig), "# auto_check = false") {
+		t.Fatal("seed config does not document auto update switch")
+	}
+}
+
 func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
 	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
 	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {

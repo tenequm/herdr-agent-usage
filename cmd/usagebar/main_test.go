@@ -70,6 +70,38 @@ func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
 	}
 }
 
+func TestRunUpdateCheck_AutoDisabledMakesNoRequest(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[update]\nauto_check = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	runUpdateCheckWith(
+		[]string{"--quiet", "--current-version", "1.0.0"},
+		map[string]string{"HERDR_PLUGIN_CONFIG_DIR": configDir},
+		func(updatecheck.Options) updatecheck.Result { calls++; return updatecheck.Result{} },
+	)
+	if calls != 0 {
+		t.Fatalf("disabled automatic check made %d requests", calls)
+	}
+}
+
+func TestRunUpdateCheck_ExplicitStillRunsWhenAutoDisabled(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[update]\nauto_check = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	runUpdateCheckWith(
+		[]string{"--force", "--current-version", "1.0.0"},
+		map[string]string{"HERDR_PLUGIN_CONFIG_DIR": configDir},
+		func(updatecheck.Options) updatecheck.Result { calls++; return updatecheck.Result{Current: "1.0.0"} },
+	)
+	if calls != 1 {
+		t.Fatalf("explicit check calls=%d, want 1", calls)
+	}
+}
+
 // TestStatusLineNotificationsDeduplicatesEveryTick reproduces issue #32's
 // once-per-second statusLine calls after entering the 50% remaining bucket.
 func TestStatusLineNotificationsDeduplicatesEveryTick(t *testing.T) {

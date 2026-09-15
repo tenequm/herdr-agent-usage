@@ -53,6 +53,7 @@ func RunSetup(options SetupOptions) SetupReport {
 	lines = append(lines,
 		"  notify.enabled="+boolStr(pluginCfg.NotifyEnabled)+"  thresholds=["+strings.Join(thr, ", ")+"]",
 		"  ui.sidebar="+boolStr(pluginCfg.Sidebar),
+		"  update.auto_check="+boolStr(pluginCfg.AutoCheck),
 	)
 	if len(pluginCfg.EnabledProviderFamilies) == 0 {
 		lines = append(lines, "  providers.enabled=[] (all provider families)")

@@ -110,16 +110,24 @@ Usage:
 }
 
 func runUpdateCheck(args []string) {
+	runUpdateCheckWith(args, environment(), updatecheck.Run)
+}
+
+func runUpdateCheckWith(args []string, env map[string]string, run func(updatecheck.Options) updatecheck.Result) {
 	quiet := hasFlag(args, "--quiet")
+	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(env))
+	if quiet && !config.AutoCheck {
+		return
+	}
 	currentVersion := flagValue(args, "--current-version")
 	if currentVersion == "" {
 		currentVersion = version
 	}
-	result := updatecheck.Run(updatecheck.Options{
+	result := run(updatecheck.Options{
 		CurrentVersion: currentVersion,
-		StateDir:       setup.ResolvePluginConfigDir(environment()),
+		StateDir:       setup.ResolvePluginConfigDir(env),
 		Force:          hasFlag(args, "--force"),
-		Notify:         updateNotification(environment()),
+		Notify:         updateNotification(env),
 	})
 	if quiet {
 		return

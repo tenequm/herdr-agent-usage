@@ -40,6 +40,9 @@ type PluginConfig struct {
 	CacheDisplay bool
 	// Sidebar controls all metadata publishing and the idle watcher.
 	Sidebar bool
+	// AutoCheck controls quiet event-triggered update checks. Explicit checks
+	// remain available regardless of this value.
+	AutoCheck bool
 	// EnabledProviderFamilies bounds all quota collection when non-empty.
 	// Values are canonical provider family ids from providers.Registrations.
 	EnabledProviderFamilies []string
@@ -62,6 +65,7 @@ var DefaultPluginConfig = PluginConfig{
 	LimitPercent:        core.LimitPercentRemaining,
 	CacheDisplay:        true,
 	Sidebar:             true,
+	AutoCheck:           true,
 }
 
 // pluginConfigWire mirrors the on-disk TOML shape for decoding.
@@ -78,6 +82,9 @@ type pluginConfigWire struct {
 	Providers struct {
 		Enabled []string `toml:"enabled"`
 	} `toml:"providers"`
+	Update struct {
+		AutoCheck *bool `toml:"auto_check"`
+	} `toml:"update"`
 	Claude struct {
 		Profiles []profileWire `toml:"profiles"`
 	} `toml:"claude"`
@@ -172,6 +179,10 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		"# Empty keeps the default behavior (all supported provider families).",
 		"# enabled = [\"claude\", \"codex\"]",
 		"",
+		"[update]",
+		"# Set false to disable event-triggered network checks; the action still works.",
+		"# auto_check = false",
+		"",
 		"# Multi-account Claude: uncomment and add one block per account.",
 
 		"# Absence of any profile keeps the single default account (fully backward",
@@ -248,6 +259,7 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		LimitPercent:        DefaultPluginConfig.LimitPercent,
 		CacheDisplay:        DefaultPluginConfig.CacheDisplay,
 		Sidebar:             DefaultPluginConfig.Sidebar,
+		AutoCheck:           DefaultPluginConfig.AutoCheck,
 	}
 
 	var wire pluginConfigWire
@@ -268,6 +280,9 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 	if wire.UI.Sidebar != nil {
 		cfg.Sidebar = *wire.UI.Sidebar
+	}
+	if wire.Update.AutoCheck != nil {
+		cfg.AutoCheck = *wire.Update.AutoCheck
 	}
 
 	quotaFamilies := make(map[string]bool)
