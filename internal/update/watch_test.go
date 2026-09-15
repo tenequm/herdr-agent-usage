@@ -116,6 +116,51 @@ func TestWatchLoop_SkipsThenTicks(t *testing.T) {
 	}
 }
 
+func TestWatchLoop_ConfigChangeStopsAndReleases(t *testing.T) {
+	checks := 0
+	ticks := 0
+	releases := 0
+	watchLoop{
+		now:   func() time.Time { return time.UnixMilli(1) },
+		sleep: func(time.Duration) {},
+		continueRunning: func() bool {
+			checks++
+			return checks == 1
+		},
+		tick:    func() { ticks++ },
+		acquire: func(time.Time) (*os.File, bool) { return nil, true },
+		release: func(*os.File) { releases++ },
+	}.run()
+
+	if checks != 2 || ticks != 1 || releases != 1 {
+		t.Fatalf("checks=%d ticks=%d releases=%d", checks, ticks, releases)
+	}
+}
+
+func TestWatchConfigAllowsRun(t *testing.T) {
+	configDir := t.TempDir()
+	stateRoot := filepath.Join(t.TempDir(), "state")
+	writeConfig := func(raw string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeConfig("[ui]\nsidebar = true\n[state]\ndir = \"" + stateRoot + "\"\n")
+	if !watchConfigAllowsRun(configDir, stateRoot) {
+		t.Fatal("unchanged enabled config stopped watch")
+	}
+	writeConfig("[ui]\nsidebar = false\n[state]\ndir = \"" + stateRoot + "\"\n")
+	if watchConfigAllowsRun(configDir, stateRoot) {
+		t.Fatal("sidebar=false did not stop watch")
+	}
+	writeConfig("[ui]\nsidebar = true\n[state]\ndir = \"" + filepath.Join(t.TempDir(), "moved") + "\"\n")
+	if watchConfigAllowsRun(configDir, stateRoot) {
+		t.Fatal("changed state root did not stop watch")
+	}
+}
+
 func alreadyStopped() <-chan struct{} {
 	ch := make(chan struct{})
 	close(ch)

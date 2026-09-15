@@ -13,10 +13,12 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/senna-lang/herdr-agent-usage/internal/limits"
 	"github.com/senna-lang/herdr-agent-usage/internal/pluginstate"
+	"github.com/senna-lang/herdr-agent-usage/internal/setup"
 )
 
 const (
@@ -89,14 +91,15 @@ func ShouldSkipWatchTick(now time.Time) bool {
 }
 
 type watchLoop struct {
-	now     func() time.Time
-	sleep   func(time.Duration)
-	stop    <-chan struct{}
-	skip    func(time.Time) bool
-	tick    func()
-	acquire func(time.Time) (*os.File, bool)
-	release func(*os.File)
-	touch   func(time.Time)
+	now             func() time.Time
+	sleep           func(time.Duration)
+	stop            <-chan struct{}
+	continueRunning func() bool
+	skip            func(time.Time) bool
+	tick            func()
+	acquire         func(time.Time) (*os.File, bool)
+	release         func(*os.File)
+	touch           func(time.Time)
 }
 
 func (w watchLoop) run() {
@@ -110,17 +113,23 @@ func (w watchLoop) run() {
 	if w.release != nil {
 		defer w.release(lock)
 	}
-	runTick := func() {
+	runTick := func() bool {
+		if w.continueRunning != nil && !w.continueRunning() {
+			return false
+		}
 		now := w.now()
 		if w.touch != nil {
 			w.touch(now)
 		}
 		if w.skip != nil && w.skip(now) {
-			return
+			return true
 		}
 		w.tick()
+		return true
 	}
-	runTick()
+	if !runTick() {
+		return
+	}
 	for {
 		if stopped(w.stop) {
 			return
@@ -129,7 +138,9 @@ func (w watchLoop) run() {
 		if stopped(w.stop) {
 			return
 		}
-		runTick()
+		if !runTick() {
+			return
+		}
 	}
 }
 
@@ -145,6 +156,21 @@ func stopped(stop <-chan struct{}) bool {
 	}
 }
 
+func watchConfigDir() string {
+	env := make(map[string]string)
+	for _, entry := range os.Environ() {
+		if i := strings.IndexByte(entry, '='); i >= 0 {
+			env[entry[:i]] = entry[i+1:]
+		}
+	}
+	return setup.ResolvePluginConfigDir(env)
+}
+
+func watchConfigAllowsRun(configDir, stateRoot string) bool {
+	config := setup.LoadPluginConfig(configDir)
+	return config.Sidebar && config.StateDir == stateRoot
+}
+
 // RunWatch holds the singleton lock and refreshes idle $limit rows until
 // the process is killed. A second instance exits without collecting.
 func RunWatch(cwd *string, now func() time.Time, sleep func(time.Duration), stop <-chan struct{}) {
@@ -154,14 +180,17 @@ func RunWatch(cwd *string, now func() time.Time, sleep func(time.Duration), stop
 	if sleep == nil {
 		sleep = time.Sleep
 	}
+	configDir := watchConfigDir()
+	stateRoot := pluginstate.Root()
 	watchLoop{
-		now:     now,
-		sleep:   sleep,
-		stop:    stop,
-		skip:    ShouldSkipWatchTick,
-		acquire: tryAcquireWatchLock,
-		release: releaseWatchLock,
-		touch:   touchWatchLock,
+		now:             now,
+		sleep:           sleep,
+		stop:            stop,
+		continueRunning: func() bool { return watchConfigAllowsRun(configDir, stateRoot) },
+		skip:            ShouldSkipWatchTick,
+		acquire:         tryAcquireWatchLock,
+		release:         releaseWatchLock,
+		touch:           touchWatchLock,
 		tick: func() {
 			tickNow := now()
 			nowMs := tickNow.UnixMilli()
