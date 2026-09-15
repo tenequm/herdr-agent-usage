@@ -702,7 +702,7 @@ func allowOpenCodeCheck(bound limits.CollectionBound, out io.Writer) bool {
 	if bound.AllowsFamily("opencode") {
 		return true
 	}
-	fmt.Fprintln(out, "opencode is not in [providers].enabled")
+	_, _ = fmt.Fprintln(out, "opencode is not in [providers].enabled")
 	return false
 }
 
