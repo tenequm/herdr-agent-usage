@@ -96,6 +96,42 @@ config_dir = "/profiles/safe"
 	}
 }
 
+func TestParsePluginConfigTOML_LegacyProfileIDsWithoutStateDir(t *testing.T) {
+	cfg := ParsePluginConfigTOML(`
+[[claude.profiles]]
+id = "../claude"
+config_dir = "/profiles/claude"
+
+[[codex.profiles]]
+id = ".codex"
+codex_home = "/profiles/codex"
+
+[[grok.profiles]]
+id = "grok/profile"
+grok_home = "/profiles/grok"
+
+[[opencode.profiles]]
+id = "opencode\\profile"
+data_dir = "/profiles/opencode"
+`)
+
+	if got := cfg.InvalidProfileIDs; len(got) != 0 {
+		t.Fatalf("invalid ids = %v, want none without configured state dir", got)
+	}
+	if len(cfg.ClaudeProfiles) != 1 || cfg.ClaudeProfiles[0].ID != "../claude" {
+		t.Fatalf("claude profiles = %+v", cfg.ClaudeProfiles)
+	}
+	if len(cfg.CodexProfiles) != 1 || cfg.CodexProfiles[0].ID != ".codex" {
+		t.Fatalf("codex profiles = %+v", cfg.CodexProfiles)
+	}
+	if len(cfg.GrokProfiles) != 1 || cfg.GrokProfiles[0].ID != "grok/profile" {
+		t.Fatalf("grok profiles = %+v", cfg.GrokProfiles)
+	}
+	if len(cfg.OpenCodeProfiles) != 1 || cfg.OpenCodeProfiles[0].ID != `opencode\profile` {
+		t.Fatalf("opencode profiles = %+v", cfg.OpenCodeProfiles)
+	}
+}
+
 func TestParsePluginConfigTOML_ProviderAllowlist(t *testing.T) {
 	cfg := ParsePluginConfigTOML("[providers]\nenabled = [\"claude\", \"unknown\", \"codex\", \"claude\"]")
 	if !reflect.DeepEqual(cfg.EnabledProviderFamilies, []string{"claude", "codex"}) {

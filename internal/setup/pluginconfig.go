@@ -327,7 +327,7 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 
 	for _, p := range wire.Claude.Profiles {
-		if !validProfileID(p.ID) {
+		if cfg.StateDir != "" && !validProfileID(p.ID) {
 			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "claude:"+p.ID)
 			continue
 		}
@@ -339,7 +339,7 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		})
 	}
 	for _, p := range wire.Codex.Profiles {
-		if !validProfileID(p.ID) {
+		if cfg.StateDir != "" && !validProfileID(p.ID) {
 			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "codex:"+p.ID)
 			continue
 		}
@@ -350,14 +350,14 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		})
 	}
 	for _, p := range wire.Grok.Profiles {
-		if !validProfileID(p.ID) {
+		if cfg.StateDir != "" && !validProfileID(p.ID) {
 			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "grok:"+p.ID)
 			continue
 		}
 		cfg.GrokProfiles = append(cfg.GrokProfiles, grok.ProfileSpec{ID: p.ID, Label: p.Label, GrokHome: p.GrokHome})
 	}
 	for _, p := range wire.OpenCode.Profiles {
-		if !validProfileID(p.ID) {
+		if cfg.StateDir != "" && !validProfileID(p.ID) {
 			cfg.InvalidProfileIDs = append(cfg.InvalidProfileIDs, "opencode:"+p.ID)
 			continue
 		}
