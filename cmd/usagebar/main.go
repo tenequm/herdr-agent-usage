@@ -37,18 +37,24 @@ func main() {
 	}
 	cmd := os.Args[1]
 	args := os.Args[2:]
-	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
-	setup.ConfigurePluginState(config)
+	env := environment()
+	config, _ := configureRuntime(env)
+	if dispatchSidebarCommand(cmd, args, config, env, sidebarCommandActions{
+		update:         update.RunUpdate,
+		startup:        update.RepublishOpenAgentPanes,
+		startIdleWatch: startIdleWatch,
+		watch: func() {
+			update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil)
+		},
+	}) {
+		return
+	}
 
 	switch cmd {
 	case "version", "--version", "-V":
 		fmt.Printf("usagebar %s\n", version)
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
-	case "status", "update":
-		// force when invoked as a plugin action (refresh)
-		force := os.Getenv("HERDR_PLUGIN_ACTION_ID") != "" || hasFlag(args, "--force")
-		runSidebarActions(config.Sidebar, func() { update.RunUpdate(force) }, startIdleWatch)
 	case "setup":
 		writeToast := hasFlag(args, "--write-toast") || hasFlag(args, "--apply-toast")
 		report := setup.RunSetup(setup.SetupOptions{WriteToast: writeToast})
@@ -60,11 +66,6 @@ func main() {
 		}
 	case "notify":
 		runNotify()
-	case "startup":
-		// Herdr [[startup]] / live handoff: restore every open pane's tokens.
-		runSidebarActions(config.Sidebar, update.RepublishOpenAgentPanes, startIdleWatch)
-	case "watch":
-		runSidebarActions(config.Sidebar, func() { update.RunWatch(resolveCwd(), time.Now, time.Sleep, nil) })
 	case "check-update":
 		runUpdateCheck(args)
 	case "statusline":
@@ -83,6 +84,43 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		printUsage(os.Stderr)
 		os.Exit(2)
+	}
+}
+
+func configureRuntime(env map[string]string) (setup.PluginConfig, func()) {
+	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(env))
+	return config, setup.ConfigurePluginState(config)
+}
+
+type sidebarCommandActions struct {
+	update         func(bool)
+	startup        func()
+	startIdleWatch func()
+	watch          func()
+}
+
+func dispatchSidebarCommand(
+	command string,
+	args []string,
+	config setup.PluginConfig,
+	env map[string]string,
+	actions sidebarCommandActions,
+) bool {
+	switch command {
+	case "status", "update":
+		// Force when invoked as a plugin action (refresh).
+		force := env["HERDR_PLUGIN_ACTION_ID"] != "" || hasFlag(args, "--force")
+		runSidebarActions(config.Sidebar, func() { actions.update(force) }, actions.startIdleWatch)
+		return true
+	case "startup":
+		// Herdr [[startup]] / live handoff: restore every open pane's tokens.
+		runSidebarActions(config.Sidebar, actions.startup, actions.startIdleWatch)
+		return true
+	case "watch":
+		runSidebarActions(config.Sidebar, actions.watch)
+		return true
+	default:
+		return false
 	}
 }
 
@@ -483,9 +521,8 @@ func runLimitsPane(args []string) error {
 }
 
 func publishPanelSidebar(snap panelSnapshot, nowMs int64) {
-	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(environment()))
 	publishPanelSidebarWith(
-		config.Sidebar,
+		environment(),
 		func() { update.PublishCollectedLimits(snap.providers, nowMs) },
 		func() { update.PublishOpenPaneCaches(time.UnixMilli(nowMs)) },
 		func() { update.TouchPaneHeartbeat(time.Now()) },
@@ -501,10 +538,11 @@ func runSidebarActions(enabled bool, actions ...func()) {
 	}
 }
 
-func publishPanelSidebarWith(enabled bool, publishLimits, publishCaches, touchHeartbeat func()) {
+func publishPanelSidebarWith(env map[string]string, publishLimits, publishCaches, touchHeartbeat func()) {
+	config := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(env))
 	// The heartbeat is last because it is evidence that both publishing steps
 	// completed on this tick, not merely that the render loop is alive.
-	runSidebarActions(enabled, publishLimits, publishCaches, touchHeartbeat)
+	runSidebarActions(config.Sidebar, publishLimits, publishCaches, touchHeartbeat)
 }
 
 func runNotify() {

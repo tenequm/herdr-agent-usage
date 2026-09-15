@@ -54,9 +54,13 @@ func TestUpdateNotificationHonorsPluginConfig(t *testing.T) {
 }
 
 func TestPublishPanelSidebarDisabledWritesNothing(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[ui]\nsidebar = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	call := func() { calls++ }
-	publishPanelSidebarWith(false, call, call, call)
+	publishPanelSidebarWith(map[string]string{"HERDR_PLUGIN_CONFIG_DIR": configDir}, call, call, call)
 	if calls != 0 {
 		t.Fatalf("disabled pane publishing made %d calls", calls)
 	}
@@ -66,7 +70,15 @@ func TestSidebarCommandGates(t *testing.T) {
 	for _, command := range []string{"status", "update", "startup", "watch"} {
 		t.Run(command, func(t *testing.T) {
 			calls := 0
-			runSidebarActions(false, func() { calls++ }, func() { calls++ })
+			actions := sidebarCommandActions{
+				update:         func(bool) { calls++ },
+				startup:        func() { calls++ },
+				startIdleWatch: func() { calls++ },
+				watch:          func() { calls++ },
+			}
+			if !dispatchSidebarCommand(command, nil, setup.PluginConfig{Sidebar: false}, nil, actions) {
+				t.Fatalf("%s was not handled by sidebar dispatch", command)
+			}
 			if calls != 0 {
 				t.Fatalf("disabled %s made %d calls", command, calls)
 			}
@@ -78,12 +90,21 @@ func TestSidebarDefaultRunsActionsAndPanePublishing(t *testing.T) {
 	if !setup.DefaultPluginConfig.Sidebar {
 		t.Fatal("sidebar default must remain enabled")
 	}
-	calls := 0
-	call := func() { calls++ }
-	runSidebarActions(setup.DefaultPluginConfig.Sidebar, call, call)
-	publishPanelSidebarWith(setup.DefaultPluginConfig.Sidebar, call, call, call)
-	if calls != 5 {
-		t.Fatalf("default sidebar made %d calls, want 5", calls)
+	updates := 0
+	watches := 0
+	if !dispatchSidebarCommand("update", []string{"--force"}, setup.DefaultPluginConfig, nil, sidebarCommandActions{
+		update: func(force bool) {
+			if !force {
+				t.Fatal("--force was ignored")
+			}
+			updates++
+		},
+		startIdleWatch: func() { watches++ },
+	}) {
+		t.Fatal("update was not handled")
+	}
+	if updates != 1 || watches != 1 {
+		t.Fatalf("updates=%d watches=%d", updates, watches)
 	}
 }
 
@@ -193,6 +214,75 @@ func TestStatusLineProfilesUseConfiguredStateRoot(t *testing.T) {
 			t.Fatalf("created state under harness path %s", forbidden)
 		}
 	}
+}
+
+func TestStatusLineDiscoversConfiguredStateRootWithoutHerdrEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		useXDG bool
+	}{
+		{name: "XDG config home", useXDG: true},
+		{name: "HOME fallback", useXDG: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			for _, key := range []string{
+				"HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_BIN_PATH", "HERDR_PANE_ID",
+				"HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_PLUGIN_CONFIG_DIR",
+				"HERDR_PLUGIN_ACTION_ID", "CLAUDE_CONFIG_DIR", "USAGEBAR_STATE_DIR",
+				"USAGEBAR_CLAUDE_LIMITS_PATH",
+			} {
+				unsetEnv(t, key)
+			}
+			t.Setenv("HOME", home)
+			configHome := filepath.Join(home, ".config")
+			if tt.useXDG {
+				configHome = filepath.Join(home, "xdg-config")
+				t.Setenv("XDG_CONFIG_HOME", configHome)
+			} else {
+				unsetEnv(t, "XDG_CONFIG_HOME")
+			}
+			configDir := filepath.Join(configHome, "herdr", "plugins", "config", "usagebar")
+			stateRoot := filepath.Join(home, "plugin-state")
+			if err := os.MkdirAll(configDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			raw := "[notify]\nenabled = false\n[state]\ndir = \"" + stateRoot + "\"\n"
+			if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			config, restore := configureRuntime(environment())
+			defer restore()
+			if config.StateDir != stateRoot {
+				t.Fatalf("state dir = %q, want %q", config.StateDir, stateRoot)
+			}
+			runStatusLineInput(`{"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1800000000}}}`, 1_700_000_000_000)
+			cache := filepath.Join(stateRoot, "claude", "claude", "claude-limits-latest.json")
+			if _, err := os.Stat(cache); err != nil {
+				t.Fatalf("statusline cache: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+				t.Fatalf("statusline wrote under legacy harness dir: %v", err)
+			}
+		})
+	}
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	value, present := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if present {
+			_ = os.Setenv(key, value)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
 }
 
 // TestStatusLineNotificationsDeduplicatesEveryTick reproduces issue #32's
