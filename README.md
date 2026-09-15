@@ -47,7 +47,12 @@ herdr plugin action invoke usagebar.enable-toast
 herdr server reload-config
 ```
 
-`herdr plugin install` provisions the `usagebar` binary automatically as part of install/update (via the manifest's `[[build]]` hook): it builds with the local Go toolchain (≥ 1.25) when available, and otherwise downloads a prebuilt binary from [GitHub Releases](https://github.com/senna-lang/herdr-agent-usage/releases) (macOS / Linux, arm64 / amd64). `usagebar.setup` repeats this resolution as a fallback for installs predating the build hook. To build manually instead, run `make build` in the plugin root.
+`herdr plugin install` provisions the `usagebar` binary through the manifest's
+`[[build]]` hook. The hook always compiles the installed checkout with the local
+Go toolchain (≥ 1.25) and fails the install if that build fails; it never runs a
+downloaded release binary. `usagebar.setup` retains the older fallback resolver
+for installs predating the build hook. To build manually, run `make build` in
+the plugin root.
 
 ## Let an LLM set it up
 
@@ -91,7 +96,7 @@ On Mac that is **Control+Shift+U** / **Control+Shift+M** (not Command). Then `he
 
 | Action | Command | What it does |
 | --- | --- | --- |
-| Open limits pane | `usagebar.open-limits` | Split pane with provider windows |
+| Open limits pane | `usagebar.open-limits` | Focused overlay with provider windows |
 | Refresh meters | `usagebar.refresh` | Recompute sidebar `$limit`, `$cache`, and `$context` tokens for the target pane |
 | Setup | `usagebar.setup` | Seed plugin config, show sidebar/toast/key snippets, report Herdr toast status |
 | Enable toast | `usagebar.enable-toast` | Append `[ui.toast]` only if missing (never overwrites) |
@@ -193,6 +198,7 @@ remaining_thresholds = [50, 20, 10, 5]
 [ui]
 limit_percent = "remaining"  # or "used"
 cache_display = true         # false hides sidebar and pane cache displays
+```
 
 `enabled = false` suppresses all Agent Usage toasts, including remaining-limit
 warnings and update-available notices; statusLine summaries and cached limits
@@ -203,12 +209,75 @@ number (and bar fill) on the pane, sidebar `$limit`, statusLine, and toast body;
 notify firing stays on remaining thresholds. `cache_display = false` clears cache
 metadata from every sidebar pane and suppresses the Agent Usage low-cache warning.
 
+### Pane-only mode
+
+Pane-only mode keeps Agent Usage as a focused overlay, collects only explicitly
+enabled provider families, and publishes nothing into agent-pane sidebars. A
+complete two-provider configuration looks like this:
+
+```toml
+[providers]
+enabled = ["claude", "codex"]
+
+[ui]
+sidebar = false
+limit_percent = "remaining"
+cache_display = true
+
+[update]
+auto_check = false
+
+[state]
+dir = "~/.local/state/herdr-agent-usage"
+
+[[claude.profiles]]
+id = "claude"
+label = "personal"
+config_dir = "~/.claude"
+
+[[claude.profiles]]
+id = "work"
+label = "work"
+config_dir = "~/.claude-work"
+
+# No [[codex.profiles]] block means the implicit default account at ~/.codex.
+```
+
+- `[providers].enabled` contains provider family IDs, not profile IDs. Every
+  configured profile in an enabled family appears even when no agent panes are
+  open. The same allowlist bounds pane, watch, notify, status/update, startup,
+  debug collection, browser import, and authenticated fetch paths. Empty or
+  absent keeps all providers enabled. Unknown IDs are ignored with a warning
+  from `usagebar setup`. Pay-as-you-go accounts remain excluded from
+  subscription-window blocks.
+- `[ui].sidebar = false` makes `status`, `update`, `startup`, and the idle watcher
+  publish no metadata tokens. The overlay also skips its periodic sidebar and
+  cache fan-out. The default is `true`.
+- The limits action opens as a focused overlay. Press `r` to refresh and `q` to
+  close it, as before.
+- `[update].auto_check = false` disables quiet event-triggered network checks.
+  The explicit `usagebar.check-updates` action still checks immediately. The
+  default is `true`.
+- Plugin installation builds this checkout from source and fails loudly when
+  it cannot; the manifest install path never downloads a release executable.
+- `[state].dir` expands `~` and places global state directly under that root,
+  per-profile state under `<dir>/<family>/<profile-id>/`, and Cursor snapshots
+  under `<dir>/cursor/sessions/`. Directories are private (`0700`), files are
+  private (`0600`), and writes are atomic. Existing `USAGEBAR_STATE_DIR` and
+  `USAGEBAR_*_PATH` overrides retain precedence. With no key, all legacy paths
+  remain unchanged; state is not migrated from them.
+
+Profile IDs become path segments when a state root is configured. IDs beginning
+with `.`, containing `..`, `/`, or `\\` are rejected and reported by
+`usagebar setup`.
+
 
 ### Multiple Claude accounts
 
 Add one `[[claude.profiles]]` block per account to the plugin config. Each
-profile owns its own limits cache, notify state, and transcript root under its
-`config_dir`, so accounts never share readings. With no profile configured the
+profile owns its own limits cache and notify state, so accounts never share
+readings. With `[state].dir`, those files live under the plugin-owned root;
+otherwise they remain under `config_dir`. With no profile configured the
 plugin tracks a single account at `~/.claude` (unchanged behavior).
 
 ```toml
@@ -476,10 +545,10 @@ Everything is computed from files that the agents already keep on your machine:
 
 | Harness | Local sources read |
 | --- | --- |
-| Claude Code | `~/.claude.json`, statusLine cache under `~/.claude/herdr-usagebar/`, `settings.json` (deployment env) |
+| Claude Code | `~/.claude.json`, statusLine cache under `~/.claude/herdr-usagebar/` (or `[state].dir/claude/<profile-id>/`), `settings.json` (deployment env) |
 | Codex | rollout files under `~/.codex/sessions/` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (session usage), `~/.local/share/opencode/auth.json` (credential kind only), and — for OpenCode Go's official windows — the `opencode.ai` cookie in a local Chromium profile plus that browser's Keychain "Safe Storage" password (read-only, never persisted; see [OpenCode Go official usage](#opencode-go-official-usage)) |
-| Cursor | Context snapshots under `~/.cursor/herdr-usagebar/` (or `USAGEBAR_STATE_DIR`), written from the CLI statusLine payload. The location is fixed rather than following `CURSOR_CONFIG_DIR`, which only the Cursor process can see; no Cursor file is read or modified |
+| Cursor | Context snapshots under `~/.cursor/herdr-usagebar/`, `[state].dir/cursor/`, or `USAGEBAR_STATE_DIR`, written from the CLI statusLine payload. The location is fixed rather than following `CURSOR_CONFIG_DIR`, which only the Cursor process can see; no Cursor file is read or modified |
 | Grok | `~/.grok/sessions/**/signals.json`, `~/.grok/auth.json` (credentials for the credits fetch), `~/.grok/config.toml` (custom-model base URLs) |
 | OMP | `~/.omp/agent/sessions/**/*.jsonl`, `~/.omp/agent/models.db` (context window lookup), `~/.omp/agent/agent.db` (credential kind, and the `usage_history` windows OMP records for the accounts it drives) |
 | Pi coding agent | `~/.pi/agent/sessions/**/*.jsonl`, `~/.pi/agent/models-store.json` and `~/.pi/agent/models.json` (or the matching `PI_CODING_AGENT_DIR`), `~/.pi/agent/auth.json` (credential kind only) |
