@@ -379,6 +379,9 @@ func apiCompactLine(p APIProviderUsage, layout PanelLayout) string {
 
 func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int64) []string {
 	lines := []string{providerHeader(p, layout)}
+	if p.GroupLabel == "" && p.AccountLabel != "" {
+		lines = append(lines, "  "+bar.Dim(p.AccountLabel, layout.Color))
+	}
 	primaryTag := windowTag(p.Primary, "5h")
 	secondaryTag := windowTag(p.Secondary, "7d")
 	tertiaryTag := windowTag(p.Tertiary, "30d")
@@ -420,6 +423,9 @@ func richBlock(p ProviderLimits, layout PanelLayout, withExtras bool, nowMs int6
 
 func compactLine(p ProviderLimits, layout PanelLayout) string {
 	name := bar.Bold(p.Label, layout.Color)
+	if p.GroupLabel == "" && p.AccountLabel != "" {
+		name += "  " + bar.Dim(p.AccountLabel, layout.Color)
+	}
 	var windows []string
 	if p.Primary != nil {
 		windows = append(windows, inlineWindow(p.Primary, windowTag(p.Primary, "5h"), layout))
@@ -562,10 +568,10 @@ func subscriptionBlock(p ProviderLimits, layout PanelLayout, nowMs int64) panelB
 	}
 }
 
-// buildProviderBlocks turns each contiguous run of 2+ providers sharing the
-// same non-empty GroupLabel (e.g. multiple configured Claude accounts) into
-// one nested groupedSubscriptionBlock; every other provider keeps its normal
-// standalone subscriptionBlock. Groups are expected to be contiguous, which
+// buildProviderBlocks turns each contiguous run of providers sharing the same
+// non-empty GroupLabel (including an explicit one-member group) into one nested
+// groupedSubscriptionBlock; every other provider keeps its normal standalone
+// subscriptionBlock. Groups are expected to be contiguous, which
 // holds for how CollectAllProviderLimits orders configured Claude profiles.
 func buildProviderBlocks(providers []ProviderLimits, layout PanelLayout, nowMs int64) []panelBlock {
 	blocks := make([]panelBlock, 0, len(providers))
@@ -577,7 +583,7 @@ func buildProviderBlocks(providers []ProviderLimits, layout PanelLayout, nowMs i
 				j++
 			}
 		}
-		if label != "" && j-i >= 2 {
+		if label != "" {
 			blocks = append(blocks, groupedSubscriptionBlock(label, providers[i:j], layout, nowMs))
 		} else {
 			blocks = append(blocks, subscriptionBlock(providers[i], layout, nowMs))

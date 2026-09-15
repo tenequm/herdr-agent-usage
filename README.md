@@ -243,6 +243,11 @@ config_dir = "~/.claude-work"
 # No [[codex.profiles]] block means the implicit default account at ~/.codex.
 ```
 
+`[ui].account_email = true` opts into showing each locally logged-in Claude
+and Codex email in the limits overlay; the default is `false`, which preserves
+the existing rendering. Emails are read only from the enabled families'
+local account files and are never written to plugin state.
+
 - `[providers].enabled` contains provider family IDs, not profile IDs. Every
   configured profile in an enabled family appears even when no agent panes are
   open. The same allowlist bounds pane, watch, notify, status/update, startup,

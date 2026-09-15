@@ -58,6 +58,7 @@ func RunSetup(options SetupOptions) SetupReport {
 	lines = append(lines,
 		"  notify.enabled="+boolStr(pluginCfg.NotifyEnabled)+"  thresholds=["+strings.Join(thr, ", ")+"]",
 		"  ui.sidebar="+boolStr(pluginCfg.Sidebar),
+		"  ui.account_email="+boolStr(pluginCfg.AccountEmail),
 		"  update.auto_check="+boolStr(pluginCfg.AutoCheck),
 	)
 	switch {

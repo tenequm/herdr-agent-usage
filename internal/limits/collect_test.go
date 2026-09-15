@@ -4,6 +4,8 @@
 package limits
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -482,5 +484,129 @@ func TestBoundedCollectorsSkipOMPWindowPool(t *testing.T) {
 	_ = collectCodexLimitsIn(filepath.Join(dir, "codex"), "codex", "Codex", 0, true)
 	if calls != 0 {
 		t.Fatalf("bounded collectors read OMP window pool %d times", calls)
+	}
+}
+
+func limitsTestIDToken(t *testing.T, claims any) string {
+	t.Helper()
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + ".test-signature"
+}
+
+func writeLimitsCodexAuth(t *testing.T, home, token string) {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"tokens": map[string]any{"id_token": token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultCollectOptions_SingleClaudeAccountEmailSetting(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"disabled", false},
+		{"enabled", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pluginConfigDir := t.TempDir()
+			t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginConfigDir)
+			profileDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(profileDir, ".claude.json"),
+				[]byte(`{"oauthAccount":{"emailAddress":"person@example.com"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			accountEmail := "false"
+			if tt.enabled {
+				accountEmail = "true"
+			}
+			config := "[ui]\naccount_email = " + accountEmail + "\n" +
+				"[[claude.profiles]]\nid = \"personal\"\nlabel = \"personal\"\nconfig_dir = \"" + profileDir + "\"\n"
+			if err := os.WriteFile(filepath.Join(pluginConfigDir, "config.toml"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := DefaultCollectOptions().Claude[0].Collector(nil, 0)
+			if tt.enabled {
+				if got.GroupLabel != "Claude" || got.AccountLabel != "person@example.com" {
+					t.Fatalf("enabled grouping = %q/%q", got.GroupLabel, got.AccountLabel)
+				}
+			} else if got.GroupLabel != "" || got.AccountLabel != "" {
+				t.Fatalf("disabled grouping = %q/%q", got.GroupLabel, got.AccountLabel)
+			}
+		})
+	}
+}
+
+func TestDefaultCollectOptions_SingleCodexAccountEmail(t *testing.T) {
+	pluginConfigDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginConfigDir)
+	profileHome := t.TempDir()
+	writeLimitsCodexAuth(t, profileHome, limitsTestIDToken(t, map[string]any{"email": "person@example.com"}))
+	config := "[ui]\naccount_email = true\n" +
+		"[[codex.profiles]]\nid = \"personal\"\nlabel = \"personal\"\ncodex_home = \"" + profileHome + "\"\n"
+	if err := os.WriteFile(filepath.Join(pluginConfigDir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := DefaultCollectOptions().Codex[0].Collector(nil, 0)
+	if got.GroupLabel != "" || got.AccountLabel != "person@example.com" {
+		t.Fatalf("single Codex display metadata = %q/%q", got.GroupLabel, got.AccountLabel)
+	}
+}
+
+func TestDefaultCollectOptions_CodexAccountEmailFallbacks(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		authBody string
+	}{
+		{"missing token", `{"tokens":{}}`},
+		{"malformed token", `{"tokens":{"id_token":"not-a-jwt"}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pluginConfigDir := t.TempDir()
+			t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginConfigDir)
+			profileHome := t.TempDir()
+			if err := os.WriteFile(filepath.Join(profileHome, "auth.json"), []byte(tt.authBody), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			config := "[ui]\naccount_email = true\n" +
+				"[[codex.profiles]]\nid = \"personal\"\nlabel = \"personal\"\ncodex_home = \"" + profileHome + "\"\n"
+			if err := os.WriteFile(filepath.Join(pluginConfigDir, "config.toml"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := DefaultCollectOptions().Codex[0].Collector(nil, 0)
+			if got.GroupLabel != "" || got.AccountLabel != "" || got.Label != "personal" {
+				t.Fatalf("fallback changed current rendering metadata: %+v", got)
+			}
+		})
+	}
+}
+
+func TestProviderAllowlistExcludingCodexNeverReadsAccountEmail(t *testing.T) {
+	pluginConfigDir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", pluginConfigDir)
+	config := "[ui]\naccount_email = true\n[providers]\nenabled = [\"claude\"]\n" +
+		"[[codex.profiles]]\nid = \"personal\"\nlabel = \"personal\"\ncodex_home = \"/must-not-read\"\n"
+	if err := os.WriteFile(filepath.Join(pluginConfigDir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := codexAccountEmailIn
+	t.Cleanup(func() { codexAccountEmailIn = old })
+	calls := 0
+	codexAccountEmailIn = func(string) string {
+		calls++
+		return "should-not-appear@example.com"
+	}
+	opts := DefaultCollectOptions()
+	_ = CollectAllProviderLimits(nil, 0, opts)
+	if calls != 0 {
+		t.Fatalf("excluded Codex account email reader called %d times", calls)
 	}
 }

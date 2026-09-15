@@ -31,13 +31,31 @@ func TestRunSetup_SeedsAndSnippets(t *testing.T) {
 	text := strings.Join(report.Lines, "\n")
 	for _, want := range []string{
 		"seeded plugin config", "toast: NOT configured", "[ui.toast]",
-		"[ui.sidebar.agents]", `["state_icon", "$title"]`,
+		"ui.account_email=false", "[ui.sidebar.agents]", `["state_icon", "$title"]`,
 		`"$limit"`, `"$cache_high"`, `"$cache_mid"`, `"$cache_low"`, `"$context"`,
 		"usagebar.open-limits", "--write-toast",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}
+	}
+}
+
+func TestRunSetupReportsAccountEmailEnabled(t *testing.T) {
+	pluginDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(pluginDir, "config.toml"),
+		[]byte("[ui]\naccount_email = true\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	report := RunSetup(SetupOptions{Env: map[string]string{
+		"HERDR_PLUGIN_CONFIG_DIR": pluginDir,
+		"HERDR_CONFIG":            filepath.Join(t.TempDir(), "config.toml"),
+	}})
+	if text := strings.Join(report.Lines, "\n"); !strings.Contains(text, "ui.account_email=true") {
+		t.Fatalf("setup did not report enabled account email:\n%s", text)
 	}
 }
 

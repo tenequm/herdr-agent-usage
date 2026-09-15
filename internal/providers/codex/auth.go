@@ -1,14 +1,14 @@
 /**
- * Reads only the account identity from Codex's auth.json.
+ * Reads the minimum account identity needed from Codex's auth.json.
  *
- * The tokens themselves are never touched. The account id exists here for one
- * purpose: a rate-limit window borrowed from another agent must be checkable
- * against the account this machine's Codex CLI is actually signed into, so a
- * second account's numbers can never be shown on a Codex pane.
+ * AccountID supports matching borrowed rate-limit windows. AccountEmail
+ * decodes only the local id_token payload when the user explicitly opts into
+ * displaying it. Neither function logs, caches, or persists credentials.
  */
 package codex
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -40,4 +40,75 @@ func AccountIDIn(home string) string {
 		return ""
 	}
 	return strings.TrimSpace(*parsed.Tokens.AccountID)
+}
+
+// AccountEmail returns the email claim from the id_token in the active Codex
+// home. Callers must gate this behind the explicit UI preference.
+func AccountEmail() string {
+	return AccountEmailIn(codexHome())
+}
+
+// AccountEmailIn reads auth.json under home and returns only the email string
+// decoded from tokens.id_token. JWT signatures are deliberately not checked:
+// this is local display metadata, not an authentication decision.
+func AccountEmailIn(home string) string {
+	if home == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(home, "auth.json"))
+	if err != nil {
+		return ""
+	}
+	var parsed struct {
+		Tokens *struct {
+			IDToken *string `json:"id_token"`
+		} `json:"tokens"`
+	}
+	if json.Unmarshal(raw, &parsed) != nil || parsed.Tokens == nil || parsed.Tokens.IDToken == nil {
+		return ""
+	}
+	return emailFromIDToken(*parsed.Tokens.IDToken)
+}
+
+func emailFromIDToken(token string) string {
+	header, rest, ok := strings.Cut(token, ".")
+	if !ok || header == "" {
+		return ""
+	}
+	payloadSegment, signature, ok := strings.Cut(rest, ".")
+	if !ok || payloadSegment == "" || signature == "" || strings.Contains(signature, ".") {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(payloadSegment)
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Email   json.RawMessage `json:"email"`
+		Profile json.RawMessage `json:"https://api.openai.com/profile"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return ""
+	}
+	if email := emailClaim(claims.Email); email != "" {
+		return email
+	}
+	var profile struct {
+		Email json.RawMessage `json:"email"`
+	}
+	if json.Unmarshal(claims.Profile, &profile) != nil {
+		return ""
+	}
+	return emailClaim(profile.Email)
+}
+
+func emailClaim(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var email string
+	if json.Unmarshal(raw, &email) != nil {
+		return ""
+	}
+	return strings.TrimSpace(email)
 }

@@ -4,6 +4,8 @@
 package codex
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,5 +86,74 @@ func TestAccountIDNeverReturnsSecrets(t *testing.T) {
 		if got == secret {
 			t.Fatalf("AccountID() leaked %q", secret)
 		}
+	}
+}
+
+func testIDToken(t *testing.T, claims any) string {
+	t.Helper()
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + ".test-signature"
+}
+
+func authWithIDToken(t *testing.T, token string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"tokens": map[string]any{"id_token": token},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestAccountEmailIn(t *testing.T) {
+	tests := []struct {
+		name   string
+		claims any
+		want   string
+	}{
+		{"standard claim", map[string]any{"email": "person@example.com"}, "person@example.com"},
+		{"profile claim", map[string]any{
+			"https://api.openai.com/profile": map[string]any{"email": "nested@example.com"},
+		}, "nested@example.com"},
+		{"standard claim wins", map[string]any{
+			"email":                          "standard@example.com",
+			"https://api.openai.com/profile": map[string]any{"email": "nested@example.com"},
+		}, "standard@example.com"},
+		{"whitespace trimmed", map[string]any{"email": "  person@example.com  "}, "person@example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := writeCodexAuth(t, authWithIDToken(t, testIDToken(t, tt.claims)))
+			if got := AccountEmailIn(home); got != tt.want {
+				t.Fatalf("AccountEmailIn() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAccountEmailInMalformedOrMissingToken(t *testing.T) {
+	tests := []string{
+		`{}`,
+		`{"tokens":null}`,
+		`{"tokens":{}}`,
+		`{"tokens":{"id_token":null}}`,
+		`{"tokens":{"id_token":"not-a-jwt"}}`,
+		`{"tokens":{"id_token":"e30.invalid!.signature"}}`,
+		`{"tokens":{"id_token":"e30.bm90LWpzb24.signature"}}`,
+		authWithIDToken(t, testIDToken(t, map[string]any{"sub": "account"})),
+		authWithIDToken(t, testIDToken(t, map[string]any{"email": ""})),
+	}
+	for _, body := range tests {
+		if got := AccountEmailIn(writeCodexAuth(t, body)); got != "" {
+			t.Fatalf("AccountEmailIn() = %q for %s, want empty", got, body)
+		}
+	}
+	if got := AccountEmailIn(t.TempDir()); got != "" {
+		t.Fatalf("missing auth.json returned %q", got)
 	}
 }

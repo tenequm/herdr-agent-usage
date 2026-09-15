@@ -38,6 +38,13 @@ func ResolvedCacheDisplay() bool {
 	return cfg.CacheDisplay
 }
 
+// ResolvedAccountEmail returns whether the user explicitly allowed local
+// account files to be read for display-only email labels.
+func ResolvedAccountEmail() bool {
+	cfg := setup.LoadPluginConfig(setup.ResolvePluginConfigDir(processEnvMap()))
+	return cfg.AccountEmail
+}
+
 type CollectionBound struct {
 	Configured bool
 	Families   map[string]bool
@@ -169,10 +176,27 @@ func codexProfileByIDIn(profiles []codex.CodexProfile, id string) (codex.CodexPr
 	return codex.CodexProfile{}, false
 }
 
+var codexAccountEmailIn = codex.AccountEmailIn
+
 // applyCodexProfileGrouping nests pl under the shared "Codex" heading when
-// multiProfile is true. AccountLabel carries the configured label (or id);
-// auth.json has no email we are willing to decode here.
-func applyCodexProfileGrouping(pl ProviderLimits, p codex.CodexProfile, multiProfile bool) ProviderLimits {
+// multiProfile is true. With account-email display enabled, AccountLabel uses
+// the locally decoded email; a single profile keeps its normal Codex heading
+// and uses AccountLabel as the indented line beneath it.
+func applyCodexProfileGrouping(
+	pl ProviderLimits,
+	p codex.CodexProfile,
+	multiProfile bool,
+	showAccountEmail bool,
+) ProviderLimits {
+	if showAccountEmail {
+		if email := codexAccountEmailIn(p.Home); email != "" {
+			pl.AccountLabel = email
+			if multiProfile {
+				pl.GroupLabel = "Codex"
+			}
+			return pl
+		}
+	}
 	if !multiProfile {
 		return pl
 	}

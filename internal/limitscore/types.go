@@ -50,12 +50,13 @@ type ProviderLimits struct {
 	PaneActivity *ProviderPaneActivity
 	// GroupLabel nests this entry under one shared heading in the panel
 	// (e.g. multiple configured Claude accounts under "Claude") instead of
-	// its own top-level block. Only takes effect when 2+ entries share the
-	// same non-empty GroupLabel; a lone entry renders as if it were empty.
+	// its own top-level block. Every contiguous entry sharing the same non-empty
+	// GroupLabel is grouped, including an explicitly requested one-member group.
 	GroupLabel string
 	// AccountLabel is shown in place of Label for the per-account line inside
 	// a group (e.g. the account's real login email), so members sharing one
-	// GroupLabel stay distinguishable. Ignored outside a group.
+	// GroupLabel stay distinguishable. Outside a group it is rendered as an
+	// indented display-only line beneath the provider heading.
 	AccountLabel string
 }
 

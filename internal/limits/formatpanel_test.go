@@ -384,3 +384,28 @@ func codexProfileSample(accountLabel string, usedPct float64) ProviderLimits {
 		FetchedAtMs:  1_700_000_000_000,
 	}
 }
+
+func TestFormatUsagePanel_GroupsSingleClaudeProfileWhenRequested(t *testing.T) {
+	p := claudeProfileSample("person@example.com", 12)
+	text := FormatLimitsPanel([]ProviderLimits{p}, 1_700_000_000_000, wide)
+	if strings.Count(text, "Claude") != 1 {
+		t.Fatalf("want one Claude family heading:\n%s", text)
+	}
+	if !strings.Contains(text, "\n   person@example.com · Pro") {
+		t.Fatalf("missing indented Claude account line:\n%s", text)
+	}
+}
+
+func TestFormatUsagePanel_ShowsStandaloneCodexAccountEmailUnderHeading(t *testing.T) {
+	p := codexProfileSample("person@example.com", 12)
+	p.GroupLabel = ""
+	p.Label = "Codex"
+	plan := "Plus"
+	p.PlanType = &plan
+	text := FormatLimitsPanel([]ProviderLimits{p}, 1_700_000_000_000, wide)
+	heading := strings.Index(text, "Codex · Plus")
+	account := strings.Index(text, "\n   person@example.com")
+	if heading < 0 || account < heading {
+		t.Fatalf("Codex account email is not under its plan heading:\n%s", text)
+	}
+}

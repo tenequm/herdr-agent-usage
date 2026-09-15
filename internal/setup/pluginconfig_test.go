@@ -54,6 +54,18 @@ func TestParsePluginConfigTOML_Sidebar(t *testing.T) {
 	}
 }
 
+func TestParsePluginConfigTOML_AccountEmail(t *testing.T) {
+	if DefaultPluginConfig.AccountEmail || ParsePluginConfigTOML("").AccountEmail {
+		t.Fatal("account_email must default to disabled")
+	}
+	if !ParsePluginConfigTOML("[ui]\naccount_email = true").AccountEmail {
+		t.Fatal("account_email=true was ignored")
+	}
+	if !contains(DefaultPluginConfigTOML(DefaultPluginConfig), "account_email = false") {
+		t.Fatal("seed config does not document account email switch")
+	}
+}
+
 func TestParsePluginConfigTOML_AutoCheck(t *testing.T) {
 	if !DefaultPluginConfig.AutoCheck || !ParsePluginConfigTOML("").AutoCheck {
 		t.Fatal("automatic update checks must default to enabled")

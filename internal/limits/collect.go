@@ -168,6 +168,7 @@ func expandEnabledFamilies(opts CollectOptions, enabled []string, configured boo
 // collector per configured Claude, Codex, Grok, or OpenCode profile.
 func DefaultCollectOptions() CollectOptions {
 	enabledFamilies, allowlistConfigured := ResolvedProviderAllowlist()
+	showAccountEmail := ResolvedAccountEmail()
 	profiles := ResolvedClaudeProfiles()
 	multiProfile := len(profiles) > 1
 	claudeCollectors := make([]ClaudeProfileCollector, len(profiles))
@@ -183,11 +184,9 @@ func DefaultCollectOptions() CollectOptions {
 				})
 				pl.ProviderID = profile.ID
 				pl.Label = profile.Label
-				// When 2+ accounts are configured, every row nests under one
-				// shared "Claude" group in the panel, labeled by its real
-				// logged-in email rather than the profile's own label — so
-				// the account behind each row is always verifiable.
-				return applyProfileGrouping(pl, profile, multiProfile)
+				// Multi-account mode always groups profiles. The explicit
+				// display setting extends that layout to a single account.
+				return applyProfileGrouping(pl, profile, multiProfile || showAccountEmail)
 			},
 		}
 	}
@@ -201,7 +200,7 @@ func DefaultCollectOptions() CollectOptions {
 			Label: profile.Label,
 			Collector: func(_ *string, nowMs int64) ProviderLimits {
 				pl := collectCodexLimitsIn(profile.Home, profile.ID, profile.Label, nowMs, allowlistConfigured)
-				return applyCodexProfileGrouping(pl, profile, multiCodex)
+				return applyCodexProfileGrouping(pl, profile, multiCodex, showAccountEmail)
 			},
 		}
 	}

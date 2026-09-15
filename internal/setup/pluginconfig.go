@@ -40,6 +40,9 @@ type PluginConfig struct {
 	// CacheDisplay controls both sidebar cache tokens and the Agent Usage pane's
 	// red-band cache warning.
 	CacheDisplay bool
+	// AccountEmail allows the limits overlay to read and display local account
+	// emails. It defaults off so upstream rendering remains unchanged.
+	AccountEmail bool
 	// Sidebar controls all metadata publishing and the idle watcher.
 	Sidebar bool
 	// AutoCheck controls quiet event-triggered update checks. Explicit checks
@@ -79,6 +82,7 @@ var DefaultPluginConfig = PluginConfig{
 	NotifyEnabled:       true,
 	LimitPercent:        core.LimitPercentRemaining,
 	CacheDisplay:        true,
+	AccountEmail:        false,
 	Sidebar:             true,
 	AutoCheck:           true,
 }
@@ -92,6 +96,7 @@ type pluginConfigWire struct {
 	UI struct {
 		LimitPercent *string `toml:"limit_percent"`
 		CacheDisplay *bool   `toml:"cache_display"`
+		AccountEmail *bool   `toml:"account_email"`
 		Sidebar      *bool   `toml:"sidebar"`
 	} `toml:"ui"`
 	Providers struct {
@@ -189,6 +194,8 @@ func DefaultPluginConfigTOML(config PluginConfig) string {
 		`limit_percent = "` + string(core.ParseLimitPercent(string(config.LimitPercent))) + `"`,
 		"# Set false to hide cache data from both sidebar and Agent Usage.",
 		"cache_display = " + strconv.FormatBool(config.CacheDisplay),
+		"# Opt in to showing locally read Claude and Codex account emails.",
+		"account_email = " + strconv.FormatBool(config.AccountEmail),
 		"# Set false for a pane-only installation with no agent-pane metadata.",
 		"# sidebar = false",
 		"",
@@ -280,6 +287,7 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 		RemainingThresholds: append([]int(nil), DefaultPluginConfig.RemainingThresholds...),
 		LimitPercent:        DefaultPluginConfig.LimitPercent,
 		CacheDisplay:        DefaultPluginConfig.CacheDisplay,
+		AccountEmail:        DefaultPluginConfig.AccountEmail,
 		Sidebar:             DefaultPluginConfig.Sidebar,
 		AutoCheck:           DefaultPluginConfig.AutoCheck,
 	}
@@ -306,6 +314,9 @@ func ParsePluginConfigTOML(raw string) PluginConfig {
 	}
 	if wire.UI.CacheDisplay != nil {
 		cfg.CacheDisplay = *wire.UI.CacheDisplay
+	}
+	if wire.UI.AccountEmail != nil {
+		cfg.AccountEmail = *wire.UI.AccountEmail
 	}
 	if wire.UI.Sidebar != nil {
 		cfg.Sidebar = *wire.UI.Sidebar
