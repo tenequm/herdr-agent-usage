@@ -15,12 +15,24 @@ import "github.com/senna-lang/herdr-agent-usage/internal/herdrcli"
 
 var ownedMetadataTokenNames = []string{"title", "provider", "limit", "context", "cache", "cache_high", "cache_mid", "cache_low"}
 
-// ClearPaneMetadata removes every token this plugin owns from one pane.
-func ClearPaneMetadata(paneID string) {
-	clearPaneMetadataWith(herdrMetadataTokenWriter, paneID)
+// ClearPaneMetadata removes the plugin-owned tokens currently present on one
+// pane, without issuing clears for absent tokens.
+func ClearPaneMetadata(paneID string, current map[string]string) {
+	clearPaneMetadataWith(herdrMetadataTokenWriter, current, paneID)
 }
 
-func clearPaneMetadataWith(writer metadataTokenWriter, paneID string) {
+func clearPaneMetadataWith(writer metadataTokenWriter, current map[string]string, paneID string) {
+	if paneID == "" {
+		return
+	}
+	for _, name := range ownedMetadataTokenNames {
+		if _, present := current[name]; present {
+			writer.clear(paneID, herdrcli.Source, name)
+		}
+	}
+}
+
+func clearAllPaneMetadataWith(writer metadataTokenWriter, paneID string) {
 	if paneID == "" {
 		return
 	}
@@ -52,14 +64,10 @@ func clearOpenAgentPaneMetadataWith(
 		}
 		current, ok := get(pane.PaneID)
 		if !ok {
-			clearPaneMetadataWith(writer, pane.PaneID)
+			clearAllPaneMetadataWith(writer, pane.PaneID)
 			continue
 		}
-		for _, name := range ownedMetadataTokenNames {
-			if _, present := current.Tokens[name]; present {
-				writer.clear(pane.PaneID, herdrcli.Source, name)
-			}
-		}
+		clearPaneMetadataWith(writer, current.Tokens, pane.PaneID)
 	}
 }
 

@@ -155,7 +155,7 @@ func TestClearOpenAgentPaneMetadataWithUnreadablePaneClearsAllOwnedTokens(t *tes
 	}
 }
 
-func TestClearPaneMetadataWithClearsEveryOwnedToken(t *testing.T) {
+func TestClearPaneMetadataWithClearsOnlyPresentOwnedTokens(t *testing.T) {
 	var got []string
 	clearPaneMetadataWith(metadataTokenWriter{clear: func(paneID, source, name string) bool {
 		if paneID != "p1" || source != herdrcli.Source {
@@ -163,8 +163,17 @@ func TestClearPaneMetadataWithClearsEveryOwnedToken(t *testing.T) {
 		}
 		got = append(got, name)
 		return true
-	}}, "p1")
-	if !reflect.DeepEqual(got, ownedMetadataTokenNames) {
-		t.Fatalf("cleared %v, want %v", got, ownedMetadataTokenNames)
+	}}, map[string]string{"limit": "old", "foreign": "keep"}, "p1")
+	if !reflect.DeepEqual(got, []string{"limit"}) {
+		t.Fatalf("cleared %v, want [limit]", got)
+	}
+
+	got = nil
+	clearPaneMetadataWith(metadataTokenWriter{clear: func(string, string, string) bool {
+		got = append(got, "unexpected")
+		return true
+	}}, map[string]string{}, "p1")
+	if len(got) != 0 {
+		t.Fatalf("empty current tokens produced clears: %v", got)
 	}
 }
